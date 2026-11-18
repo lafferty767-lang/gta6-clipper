@@ -129,33 +129,40 @@ class DB:
                 "SELECT * FROM clips WHERE status = ? ORDER BY COALESCE(llm_score, 0) DESC, id ASC LIMIT 1",
                 (APPROVED,)).fetchone())
 
-    def uploads_since(self, since_ts: float) -> int:
-        """Number of clips uploaded (to at least one target) since a timestamp."""
+    def _posted_times(self) -> list[list[float]]:
+        """For each clip, the times it was successfully posted somewhere public. Counted whatever
+        the clip's status, so a clip that reached YouTube but failed on TikTok still counts
+        toward the daily cap and spacing. The local export folder doesn't count."""
         with self._lock:
-            rows = self._conn.execute("SELECT uploads FROM clips WHERE status IN (?, ?)", (UPLOADED, UPLOADING)).fetchall()
-        n = 0
+            rows = self._conn.execute("SELECT uploads FROM clips WHERE uploads IS NOT NULL").fetchall()
+        out = []
         for r in rows:
             try:
                 ups = json.loads(r["uploads"] or "{}")
             except ValueError:
                 continue
-            if any((u or {}).get("at", 0) >= since_ts for u in ups.values() if isinstance(u, dict)):
-                n += 1
-        return n
+            if not isinstance(ups, dict):
+                continue
+            times = [float(u.get("at") or 0) for name, u in ups.items()
+                     if name != "local" and isinstance(u, dict) and u.get("ok")]
+            if times:
+                out.append(times)
+        return out
+
+    def uploads_since(self, since_ts: float) -> int:
+        """Number of clips posted (to at least one public target) since a timestamp."""
+        return sum(1 for times in self._posted_times() if max(times) >= since_ts)
 
     def last_upload_at(self) -> float:
+        return max((max(times) for times in self._posted_times()), default=0.0)
+
+    def reset_interrupted_uploads(self) -> int:
+        """Clips left 'uploading' by a restart become 'failed' so the dashboard offers Retry."""
         with self._lock:
-            rows = self._conn.execute("SELECT uploads FROM clips WHERE status = ?", (UPLOADED,)).fetchall()
-        last = 0.0
-        for r in rows:
-            try:
-                ups = json.loads(r["uploads"] or "{}")
-            except ValueError:
-                continue
-            for u in ups.values():
-                if isinstance(u, dict):
-                    last = max(last, float(u.get("at", 0)))
-        return last
+            cur = self._conn.execute("UPDATE clips SET status = ?, error = ? WHERE status = ?",
+                                     (FAILED, "upload interrupted by a restart; press Retry", UPLOADING))
+            self._conn.commit()
+        return cur.rowcount
 
     # --- discovery ----------------------------------------------------------------
     def upsert_discovered(self, platform: str, login: str, display_name: str, viewers: int, title: str, language: str) -> None:

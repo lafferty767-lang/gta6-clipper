@@ -17,7 +17,7 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg
       - run: pip install -r requirements.txt pytest pyflakes shellcheck-py
       - run: pyflakes clipper tests
       - run: shellcheck -S warning deploy/*.sh
@@ -62,20 +62,27 @@ jobs:
           curl -fsSk --retry 10 --retry-delay 3 --retry-all-errors https://localhost/healthz
           curl -fsSk https://localhost/privacy | grep -q "Privacy policy"
           test "$(curl -sk -o /dev/null -w '%{http_code}' https://localhost/setup)" = 401
+          test "$(curl -sk -o /dev/null -w '%{http_code}' https://localhost/openapi.json)" = 404
+          head -c 3000000 /dev/zero > big.bin
+          code=$(curl -sk -o /dev/null -w '%{http_code}' -F file=@big.bin https://localhost/setup/tiktok-verify)
+          case "$code" in 401|200|422) echo "a 3 MB upload got through Caddy ($code)"; exit 1 ;; esac
           clipper status
           cd /opt/gta6-clipper
           sudo docker compose exec -T clipper uname -m | grep -q aarch64
           sudo docker compose exec -T clipper python -c "import faster_whisper, ctranslate2, curl_cffi, av, numpy; print('arm64 imports ok')"
           sudo docker compose exec -T clipper python -m clipper doctor || true
       - name: Installer is safe to run twice
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
+          # Second run without GH_TOKEN: keeps the password and the token stored for git.
           before=$(sudo grep DASHBOARD_PASSWORD /opt/gta6-clipper/.env)
           sudo REPO="${{ github.repository }}" BRANCH="${{ github.head_ref || github.ref_name }}" \
-            GH_TOKEN="$GH_TOKEN" DOMAIN=localhost DOMAIN_ALT= bash deploy/install.sh
+            DOMAIN=localhost DOMAIN_ALT= bash deploy/install.sh
           test "$before" = "$(sudo grep DASHBOARD_PASSWORD /opt/gta6-clipper/.env)"
+          sudo git -C /opt/gta6-clipper remote get-url origin | grep -q x-access-token
           curl -fsS http://127.0.0.1:8080/healthz
+          curl -fsSk --retry 10 --retry-delay 3 --retry-all-errors https://localhost/healthz
+      - name: Nightly update has nothing to do right after an install
+        run: sudo /opt/gta6-clipper/deploy/update.sh | tee /dev/stderr | grep -q "already up to date"
       - name: Logs on failure
         if: failure()
         run: |

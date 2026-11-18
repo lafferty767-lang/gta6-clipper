@@ -115,7 +115,8 @@ YouTube and Kick live checks need no keys.
 ## 5. Claude API key (optional, recommended)
 
 Claude watches each clip's transcript and chat reaction, scores it 1-10, skips weak ones and writes
-the title, description and hashtags. Without a key, clips get simple titles and all go to review.
+the title, description and hashtags. Without a key (or when its credit runs out), clips get simple
+titles and always wait for you to approve them, even after you turn review mode off.
 
 1. <https://console.anthropic.com> → **API Keys** → Create key. Add a few dollars of credit.
 2. Paste it into the **Claude** box on the Setup page.
@@ -136,6 +137,10 @@ You create a small Google "app" that is only for you, then connect your channel 
    Google won't accept the links, leave them empty and try the next step anyway.
 5. **Audience** → **Publish app** → confirm. This matters: while the app is in "Testing", Google
    logs you out of it every 7 days. You don't need Google's verification for your own use.
+   If Google won't let you publish (it says the Branding page isn't complete), stay in Testing:
+   on the same **Audience** page, under **Test users**, press **Add users** and add the Google
+   account that owns your YouTube channel. Everything works, but you'll need to press Connect
+   YouTube again once a week until the app is published.
 6. **Clients → Create client**, application type **TVs and Limited Input devices**, any name.
    Copy the **Client ID** and **Client secret** into the **YouTube** box on the Setup page and Save.
 7. Press **Connect YouTube**. The page shows a code. On your phone or computer open
@@ -144,7 +149,7 @@ You create a small Google "app" that is only for you, then connect your channel 
    Go to GTA 6 Clipper**. That's expected for your own app. The Setup page turns green by itself.
 
 Uploads are public by default (`privacy` under `uploads.targets.youtube` in Settings). Google
-allows 100 uploads a day per project, far more than the bot's default of 8 a day.
+allows 100 uploads a day per project, far more than the bot's default of 5 a day.
 
 ## 7. TikTok
 
@@ -167,8 +172,9 @@ allows 100 uploads a day per project, far more than the bot's default of 8 a day
 How posting works (`mode` under `uploads.targets.tiktok` in Settings):
 
 - `inbox` (default): each clip arrives in the TikTok app as a draft notification. You open it, add
-  a sound if you like and tap Post. TikTok allows at most 5 waiting drafts per day, so post or
-  delete them daily.
+  a sound if you like and tap Post. TikTok allows at most 5 waiting drafts per 24 hours, so post or
+  delete each draft when it arrives. If TikTok refuses a draft, the clip shows as failed on the
+  Clips tab with a Retry button; retrying only sends it to the places it hasn't reached yet.
 - `direct`: posts straight to your profile, but only after TikTok has reviewed (audited) your app.
   Before that, direct posts are private only and the TikTok account itself must be set to private.
   To post publicly on autopilot, submit the app for review in the developer portal.
@@ -199,14 +205,16 @@ dashboard either way.
 
 Review mode is on at first: every clip waits on the **Clips** tab until you press Approve. Once you
 trust the clips, set `review_mode: false` in Settings. Clips that pass the AI check then upload on
-their own, up to `uploads.max_per_day`, at least `uploads.min_minutes_between` minutes apart.
+their own, up to `uploads.max_per_day` (5) a day, at least `uploads.min_minutes_between` (20)
+minutes apart. Clips the AI couldn't score (no Claude key, or no credit left) still wait for you.
 
 ## Everyday use
 
 Everything is in the dashboard. The bot updates itself every night (04:23 server time, UTC).
 
-For the server command line: open Oracle Cloud Shell (Network: Public) and run the `SSH:` line from
-`cat ~/gta6-clipper-server.txt`. Then:
+For the server command line: open Oracle Cloud Shell, set its **Network** (menu at the top of
+Cloud Shell) to **Public**, run `cat ~/gta6-clipper-server.txt`, and run the command shown after
+`SSH:` (it looks like `ssh ubuntu@1.2.3.4`). Then:
 
 | Command | What it does |
 |---|---|
@@ -227,6 +235,8 @@ For the server command line: open Oracle Cloud Shell (Network: Public) and run t
 | A YouTube streamer never shows as live | check their `@handle`; set `game_check: false` if they don't tag the game |
 | Kick returns HTTP 403 | Kick's bot protection; it usually clears up, or use their Twitch/YouTube instead |
 | No captions on the first clip | the speech model is still downloading (about 500 MB, once) |
+| Cloud Shell says the install on the server failed | copy the log lines it shows when asking for help; to try again, run the `ssh ... /root/gta6-firstboot.sh` line it prints (Cloud Shell Network: Public) |
+| Connect YouTube says access was denied, or Google shows "Error 403: access_denied" | the Google app is in "Testing" and your account isn't a test user; add it or publish the app (step 6.5) |
 | YouTube login stopped working after a week | the Google app is still in "Testing"; publish it (step 6.5) and press Connect YouTube again |
 | TikTok "too many pending shares" | more than 5 drafts waiting in the TikTok app; post or delete them |
 | TikTok posts are private | the TikTok app isn't reviewed yet; use `mode: inbox` or submit it for review |

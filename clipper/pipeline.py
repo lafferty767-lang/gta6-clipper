@@ -87,7 +87,9 @@ class ClipProcessor(threading.Thread):
             status = dbm.LOW_SCORE
         elif cfg.require_permission_to_upload and not s.upload_allowed:
             status = dbm.NEEDS_PERMISSION
-        elif cfg.review_mode:
+        elif cfg.review_mode or meta.llm_score is None:
+            # Without an AI score (no Claude key, or Claude failed) nothing has filtered the clip,
+            # so it waits for a human even when review mode is off.
             status = dbm.READY
         else:
             status = dbm.APPROVED

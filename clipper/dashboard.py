@@ -22,6 +22,7 @@ from urllib.parse import urlencode, urlparse
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from starlette.concurrency import run_in_threadpool
 
 from . import db as dbm
 from .config import load_config
@@ -105,7 +106,7 @@ who have given permission.</p>"""),
 
 
 def create_app(orch) -> FastAPI:
-    app = FastAPI(title="GTA 6 Clipper", docs_url=None, redoc_url=None)
+    app = FastAPI(title="GTA 6 Clipper", docs_url=None, redoc_url=None, openapi_url=None)
     user = os.environ.get("DASHBOARD_USER", "admin")
     password = os.environ.get("DASHBOARD_PASSWORD")
     if not password:
@@ -130,6 +131,7 @@ def create_app(orch) -> FastAPI:
         orch.reload_integrations()
         with checks_lock:
             checks_cache.clear()
+            checks_cache["gen"] = checks_gen[0] = checks_gen[0] + 1
 
     def on_youtube_token(token: str) -> None:
         orch.settings.update({"YOUTUBE_REFRESH_TOKEN": token})
@@ -145,6 +147,7 @@ def create_app(orch) -> FastAPI:
     yt_connector = YouTubeDeviceConnector(on_youtube_token)
     tt_connector = TikTokConnector(on_tiktok_tokens)
     checks_cache: dict = {}
+    checks_gen = [0]          # bumped when keys change, so a check run that started before is thrown away
     checks_lock = threading.Lock()
 
     def go(path: str, **params) -> RedirectResponse:
@@ -153,7 +156,7 @@ def create_app(orch) -> FastAPI:
     def page(active: str, body: str, refresh: int | None = None) -> HTMLResponse:
         links = [("/", "Clips"), ("/setup", "Setup"), ("/settings", "Settings")]
         nav = "".join(f"<a href='{h}' class={'on' if h == active else ''}>{t}</a>" for h, t in links)
-        meta = f"<meta http-equiv=refresh content={refresh}>" if refresh else ""
+        meta = f"<meta http-equiv=refresh content='{refresh};url={active}'>" if refresh else ""
         return HTMLResponse(
             "<!doctype html><html><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
             f"<title>GTA 6 Clipper</title><style>{CSS}</style>{meta}</head><body>"
@@ -268,11 +271,17 @@ def create_app(orch) -> FastAPI:
     ICON = {OK: "✅", WARN: "⚠️", FAIL: "❌", OFF: "➖"}
 
     def get_checks(force: bool = False):
+        # The checks call outside services (up to ~20 s each), so they run without holding the lock.
         with checks_lock:
-            if force or not checks_cache or time.time() - checks_cache.get("at", 0) > 300:
-                checks_cache["items"] = run_checks(orch.cfg, db, orch.public_base_url)
-                checks_cache["at"] = time.time()
-            return checks_cache["items"], checks_cache["at"]
+            if not force and "items" in checks_cache and time.time() - checks_cache["at"] <= 300:
+                return checks_cache["items"], checks_cache["at"]
+            gen = checks_gen[0]
+        items = run_checks(orch.cfg, db, orch.public_base_url)
+        at = time.time()
+        with checks_lock:
+            if gen == checks_gen[0]:
+                checks_cache.update(items=items, at=at)
+        return items, at
 
     def base_url(request: Request) -> str:
         """The public https address, or the address this page was opened on."""
@@ -356,10 +365,10 @@ def create_app(orch) -> FastAPI:
     @app.post("/setup/keys", dependencies=write)
     async def save_keys(request: Request):
         form = await request.form()
-        changed = orch.settings.update({k: str(v) for k, v in form.items()})
+        changed = await run_in_threadpool(orch.settings.update, {k: str(v) for k, v in form.items()})
         if "TIKTOK_REFRESH_TOKEN" in changed:
             db.kv_set("tiktok_token", "{}")  # forget the old TikTok session so the new token is used
-        reload_after_keys()
+        await run_in_threadpool(reload_after_keys)
         msg = f"Saved: {', '.join(changed)}" if changed else "Nothing changed."
         return go("/setup", msg=msg)
 

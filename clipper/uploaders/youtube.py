@@ -68,5 +68,7 @@ def run_auth_flow() -> None:
         time.sleep(2)
     if flow.status != "done":
         raise SystemExit(flow.message)
-    print("Connected. Add this line to .env (or paste it on the dashboard's Setup page):\n")
-    print(f"YOUTUBE_REFRESH_TOKEN={got['token']}")
+    from ..settings import Settings
+
+    Settings(Path(os.environ.get("CLIPPER_DATA_DIR", "./data"))).update({"YOUTUBE_REFRESH_TOKEN": got["token"]})
+    print("YouTube connected and saved. Restart the bot so it uses it:  clipper restart")

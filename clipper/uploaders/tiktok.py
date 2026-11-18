@@ -141,5 +141,10 @@ def run_auth_flow() -> None:
     j = r.json()
     if "refresh_token" not in j:
         raise SystemExit(f"Token exchange failed: {j}")
-    print("\nAdd this to your .env:\n")
-    print(f"TIKTOK_REFRESH_TOKEN={j['refresh_token']}")
+    from .. import db as dbm
+    from ..settings import Settings
+
+    data_dir = Path(os.environ.get("CLIPPER_DATA_DIR", "./data"))
+    Settings(data_dir).update({"TIKTOK_REFRESH_TOKEN": j["refresh_token"]})
+    dbm.DB(data_dir / "clipper.db").kv_set("tiktok_token", "{}")  # drop the old session
+    print("\nTikTok connected and saved. Restart the bot so it uses it:  clipper restart")

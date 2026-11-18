@@ -95,7 +95,7 @@ class Edit:
 
 @dataclass
 class Uploads:
-    max_per_day: int = 8
+    max_per_day: int = 5
     min_minutes_between: int = 20
     targets: dict[str, dict[str, Any]] = field(default_factory=dict)
 

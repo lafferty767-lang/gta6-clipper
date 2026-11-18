@@ -5,5 +5,9 @@
 # Caddy gets and renews a certificate for each automatically (needs ports 80 and 443 open).
 {$DOMAIN:localhost} {$DOMAIN_ALT} {
 	encode gzip
+	# Nothing the dashboard accepts is bigger than this; stops anyone filling the disk with uploads.
+	request_body {
+		max_size 2MB
+	}
 	reverse_proxy clipper:8080
 }

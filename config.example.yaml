@@ -128,7 +128,7 @@ edit:
 # Uploads. Each target needs its keys in .env (see SETUP.md). Targets without keys are skipped.
 # ---------------------------------------------------------------------------------------
 uploads:
-  max_per_day: 8                 # across all streamers; keep low at first so accounts look natural
+  max_per_day: 5                 # across all streamers; 5 also matches TikTok's 5 waiting drafts a day
   min_minutes_between: 20
   targets:
     youtube:

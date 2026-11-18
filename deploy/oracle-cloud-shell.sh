@@ -88,13 +88,14 @@ wait_state() {
 }
 
 # Prints the server's serial console (the install log is mirrored there), read through Oracle's API.
+# Lines that journald forwards look like "[  400.3] cloud-init[900]: text"; that prefix is removed.
 console_log() {
   local h
   h=$(q compute console-history capture --instance-id "$INSTANCE" --wait-for-state SUCCEEDED \
         --wait-for-state FAILED --max-wait-seconds 120 --query 'data.id')
   ok "$h" || return 0
   oci compute console-history get-content --instance-console-history-id "$h" --file - --length 1048576 2>/dev/null \
-    | tr -d '\r' | sed 's/\x1b\[[0-9;]*m//g' || true
+    | tr -d '\r' | sed -E 's/\x1b\[[0-9;]*m//g; s/^\[ *[0-9]+\.[0-9]+\] //; s/^[A-Za-z0-9_.@-]+\[[0-9]+\]: //' || true
   oci compute console-history delete --instance-console-history-id "$h" --force >/dev/null 2>&1 || true
 }
 
@@ -204,6 +205,11 @@ main() {
       oci compute instance action --instance-id "$INSTANCE" --action START --wait-for-state RUNNING \
         --max-wait-seconds 900 >/dev/null || warn "It hasn't started yet; check Compute > Instances in the console."
     fi
+    if ! ok "$DASH_PW"; then   # Cloud Shell forgot it: read it back from the server's first-boot script
+      DASH_PW=$(q compute instance get --instance-id "$INSTANCE" --query 'data.metadata.user_data' \
+                  | base64 -d 2>/dev/null | sed -n "s/.*DASHBOARD_PASSWORD='\([^']*\)'.*/\1/p" | head -n 1 || true)
+      if ok "$DASH_PW"; then state_set DASH_PW "$DASH_PW"; fi
+    fi
   else
     if ! ok "$DASH_PW"; then
       DASH_PW=$(python3 -c 'import secrets; print(secrets.token_urlsafe(15))')
@@ -232,15 +238,24 @@ main() {
       if ok "$DASH_PW"; then echo "Password:  $DASH_PW"
       else echo "Password:  in /opt/gta6-clipper/WELCOME.txt on the server (or run 'clipper password' there)"; fi
       echo "Server IP: $IP"
-      echo "SSH:       ssh ubuntu@$IP   (from Oracle Cloud Shell, when its Network is set to Public)"
+      echo "SSH:       ssh ubuntu@$IP"
+      echo "           (works from Oracle Cloud Shell once its Network is set to Public)"
     } > "$INFO_FILE"
     chmod 600 "$INFO_FILE"
   }
   write_info
 
-  wait_for_install "$DOMAIN" "$IP" "$FRESH"
+  local rc=0
+  wait_for_install "$DOMAIN" "$IP" "$FRESH" || rc=$?
 
   write_info
+  if [ "$rc" = 2 ]; then
+    say "The server is up, but installing the bot on it failed"
+    cat "$INFO_FILE"
+    echo
+    echo "The server's log and how to retry are just above. Running this command again checks once more."
+    exit 1
+  fi
   say "All set!"
   cat "$INFO_FILE"
   echo
@@ -266,20 +281,32 @@ launch_server() {
   cat > "$USERDATA" <<EOF
 #!/bin/bash
 # GTA 6 Clipper first-boot install. Log: /var/log/gta6-clipper-install.log
+# To run it again by hand:  sudo bash /root/gta6-firstboot.sh
 exec > >(tee -a /var/log/gta6-clipper-install.log) 2>&1
 mark() { echo "GTA6-CLIPPER: \$*"; echo "GTA6-CLIPPER: \$*" > /dev/console 2>/dev/null || true; }
-mark "first boot, downloading the installer"
+mark "downloading the installer"
+cp -f "\$0" /root/gta6-firstboot.sh 2>/dev/null; chmod 700 /root/gta6-firstboot.sh 2>/dev/null
+# The installer's settings, kept so a later run of install.sh by hand uses the same ones.
+mkdir -p /etc/gta6-clipper && chmod 700 /etc/gta6-clipper
+( umask 077; cat > /etc/gta6-clipper/install.env <<'ENV'
+REPO='$REPO'
+BRANCH='$BRANCH'
+GH_TOKEN='$GH_TOKEN'
+DASHBOARD_PASSWORD='$DASH_PW'
+ENV
+)
 for i in \$(seq 1 30); do
   curl -fsSL $auth https://raw.githubusercontent.com/$REPO/$BRANCH/deploy/install.sh -o /root/gta6-install.sh && break
   mark "download failed (try \$i), retrying"; sleep 10
 done
 for try in 1 2 3; do
-  if REPO='$REPO' BRANCH='$BRANCH' GH_TOKEN='$GH_TOKEN' DASHBOARD_PASSWORD='$DASH_PW' bash /root/gta6-install.sh; then
+  if GTA6_CONSOLE=1 REPO='$REPO' BRANCH='$BRANCH' GH_TOKEN='$GH_TOKEN' DASHBOARD_PASSWORD='$DASH_PW' bash /root/gta6-install.sh; then
     mark "INSTALL-OK"; exit 0
   fi
   mark "install attempt \$try failed"; sleep 60
 done
 mark "INSTALL-FAILED"
+exit 1
 EOF
   chmod 600 "$USERDATA"
 
@@ -345,8 +372,12 @@ EOF
 }
 
 wait_for_install() {
-  local DOMAIN="$1" IP="$2" FRESH="$3" t0 deadline seen=0 last="" log line
-  say "The server is installing the bot by itself (about 10-15 minutes)"
+  local DOMAIN="$1" IP="$2" FRESH="$3" t0 deadline seen=0 last="" log line result
+  if [ "$FRESH" = 1 ]; then
+    say "The server is installing the bot by itself (about 10-15 minutes)"
+  else
+    say "Checking on the bot on your server"
+  fi
   info "Progress is read from the server's console every 30 seconds."
   t0=$(date +%s)
   deadline=$(( t0 + 2400 ))
@@ -357,23 +388,26 @@ wait_for_install() {
     fi
     log=$(console_log)
     grep -q "GTA6-CLIPPER: " <<<"$log" && seen=1
-    if grep -q "GTA6-CLIPPER: INSTALL-OK" <<<"$log"; then
+    # The last result counts: a failed first try may have been retried by hand since.
+    result=$(grep -oE 'GTA6-CLIPPER: INSTALL-(OK|FAILED)' <<<"$log" | tail -n 1 || true)
+    if [ "$result" = "GTA6-CLIPPER: INSTALL-OK" ]; then
       info "install finished"
-      if ! ok "$DASH_PW"; then   # reusing a server from an earlier run: its password is in the log
-        line=$(grep -E '^Password: ' <<<"$log" | tail -n 1 | sed 's/^Password: *//' || true)
+      if ! ok "$DASH_PW"; then   # last resort: the installer prints the password at the end
+        line=$(grep -E '(^|[^A-Za-z_])Password: ' <<<"$log" | tail -n 1 | sed -E 's/.*Password: *//; s/ .*//' || true)
         if ok "$line"; then DASH_PW="$line"; state_set DASH_PW "$line"; fi
       fi
       info "(if the https address doesn't load right away, give it a minute to get its certificate)"
       return 0
     fi
-    if grep -q "GTA6-CLIPPER: INSTALL-FAILED" <<<"$log"; then
+    if [ "$result" = "GTA6-CLIPPER: INSTALL-FAILED" ]; then
       warn "The install on the server failed. The end of its log:"
       grep -vE '^\s*$' <<<"$log" | tail -n 25 | sed 's/^/      /'
-      warn "Copy these lines when asking for help. To retry after fixing the cause, set Cloud Shell's"
-      warn "Network to Public and run:  ssh ubuntu@$IP sudo bash /root/gta6-install.sh"
-      return 0
+      warn "Copy these lines when asking for help. To try again: in Cloud Shell, set Network to Public"
+      warn "(Network menu at the top of Cloud Shell), then run:"
+      warn "    ssh ubuntu@$IP sudo bash /root/gta6-firstboot.sh"
+      return 2
     fi
-    line=$(grep -E '^==> |^GTA6-CLIPPER: ' <<<"$log" | tail -n 1 | sed 's/^==> //; s/^GTA6-CLIPPER: //' || true)
+    line=$(grep -E '==> |GTA6-CLIPPER: ' <<<"$log" | tail -n 1 | sed -E 's/.*(==> |GTA6-CLIPPER: )//' || true)
     if [ -n "$line" ] && [ "$line" != "$last" ]; then info "server: $line"; last="$line"; fi
     if [ "$seen" = 0 ] && [ $(( $(date +%s) - t0 )) -gt $(( FRESH == 1 ? 600 : 90 )) ]; then
       info "Can't see the server's progress from here, but it installs on its own."

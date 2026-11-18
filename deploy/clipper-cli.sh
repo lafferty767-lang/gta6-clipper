@@ -18,7 +18,28 @@ case "${1:-help}" in
   check)    dc exec clipper python -m clipper check ;;
   password) grep -E '^DASHBOARD_PASSWORD=' .env | cut -d= -f2- ;;
   settings) ${EDITOR:-nano} config.yaml ;;
-  keys)     ${EDITOR:-nano} .env && dc up -d ;;
+  keys)     # Keys saved on the dashboard's Setup page override .env, so a key changed here is
+            # removed from the dashboard's copy (data/secrets.json) and the .env value is used.
+            before=$(mktemp); cp .env "$before"
+            ${EDITOR:-nano} .env
+            changed=$(diff <(sort "$before") <(sort .env) | sed -n 's/^> \([A-Z_][A-Z0-9_]*\)=.*/\1/p' | sort -u || true)
+            rm -f "$before"
+            if [ -n "$changed" ] && sudo test -f data/secrets.json; then
+              # shellcheck disable=SC2086
+              sudo python3 - data/secrets.json $changed <<'PY'
+import json, sys
+path, keys = sys.argv[1], set(sys.argv[2:])
+data = json.load(open(path))
+dropped = sorted(k for k in keys if k in data)
+for k in dropped:
+    del data[k]
+with open(path, "w") as f:
+    json.dump(data, f, indent=2)
+if dropped:
+    print("Using the new .env value for: " + ", ".join(dropped))
+PY
+            fi
+            dc up -d ;;
   *) cat <<HELP
 clipper status     is it running + dashboard address
 clipper logs       watch what the bot is doing (Ctrl+C to stop watching)
@@ -28,7 +49,7 @@ clipper password   show the dashboard password
 clipper restart    restart the bot
 clipper update     get the newest version now (it also updates itself nightly)
 clipper settings   edit config.yaml (same as the dashboard's Settings page)
-clipper keys       edit .env (keys can also be pasted on the dashboard's Setup page)
+clipper keys       edit the keys in .env (easier: paste them on the dashboard's Setup page)
 HELP
   ;;
 esac

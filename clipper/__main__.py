@@ -22,6 +22,16 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 
+def _load_saved_keys() -> None:
+    """Keys pasted on the dashboard's Setup page live in <data dir>/secrets.json and win over .env."""
+    from .settings import Settings
+
+    try:
+        Settings(Path(os.environ.get("CLIPPER_DATA_DIR", "./data")))
+    except OSError:
+        pass
+
+
 def _setup_logging() -> None:
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"),
                         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
@@ -143,6 +153,7 @@ def cmd_clip_file(args) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     load_dotenv()
+    _load_saved_keys()
     _setup_logging()
     p = argparse.ArgumentParser(prog="clipper", description="GTA 6 stream clipping bot")
     p.add_argument("--config", default=os.environ.get("CLIPPER_CONFIG", "config.yaml"))

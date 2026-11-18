@@ -61,6 +61,7 @@ class UploadManager(threading.Thread):
             try:
                 res = up.upload(clip, Path(clip["final_path"]))
                 results[up.name] = {"ok": True, "at": time.time(), **res}
+                db.update_clip(clip["id"], uploads=results)  # saved now, so a restart can't post it twice
                 log.info("clip %s uploaded to %s: %s", clip["id"], up.name, res)
             except Exception as e:  # noqa: BLE001
                 log.exception("upload of clip %s to %s failed", clip["id"], up.name)
@@ -198,6 +199,8 @@ class Orchestrator:
         self.discover()
 
     def run_forever(self) -> None:
+        if n := self.db.reset_interrupted_uploads():
+            log.warning("%d upload(s) were interrupted by a restart; they're under Failed with a Retry button", n)
         self.processor.start()
         UploadManager(self).start()
         names = ", ".join(s.name for s in self.cfg.streamers if s.enabled)

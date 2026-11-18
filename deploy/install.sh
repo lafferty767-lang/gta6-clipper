@@ -8,14 +8,29 @@
 set -euo pipefail
 export HOME="${HOME:-/root}"   # cloud-init may run us without HOME
 
+# Settings saved by the Oracle setup's first-boot script, so running this again by hand uses the
+# same repo, token and password. Values given on the command line still win.
+if [ -r /etc/gta6-clipper/install.env ]; then
+  for k in REPO BRANCH GH_TOKEN DASHBOARD_PASSWORD; do
+    [ -n "${!k:-}" ] && continue
+    v=$(sed -n "s/^$k='\([^']*\)'\$/\1/p" /etc/gta6-clipper/install.env | tail -n 1)
+    [ -n "$v" ] && printf -v "$k" '%s' "$v"
+  done
+fi
+
 REPO="${REPO:-lafferty767-lang/gta6-clipper}"
 BRANCH="${BRANCH:-main}"
 APP_DIR="${APP_DIR:-/opt/gta6-clipper}"
 GH_TOKEN="${GH_TOKEN:-}"
 
-say()  { printf '\n\033[1;35m==>\033[0m \033[1m%s\033[0m\n' "$*"; }
-warn() { printf '\033[1;33m!!\033[0m %s\n' "$*"; }
-die()  { printf '\033[1;31mxx\033[0m %s\n' "$*" >&2; exit 1; }
+# Colours only on a terminal. Under the Oracle first-boot script (GTA6_CONSOLE=1) each step also
+# goes to the serial console, where the Cloud Shell script reads the progress.
+say() {
+  if [ -t 1 ]; then printf '\n\033[1;35m==>\033[0m \033[1m%s\033[0m\n' "$*"; else printf '\n==> %s\n' "$*"; fi
+  if [ -n "${GTA6_CONSOLE:-}" ]; then echo "GTA6-CLIPPER: $*" > /dev/console 2>/dev/null || true; fi
+}
+warn() { printf '!! %s\n' "$*"; }
+die()  { printf 'xx %s\n' "$*" >&2; exit 1; }
 
 [ "$(id -u)" -eq 0 ] || die "Run this with sudo (… | sudo bash)."
 command -v apt-get >/dev/null || die "This installer supports Ubuntu/Debian. Pick the Canonical Ubuntu image."
@@ -73,8 +88,14 @@ else
 fi
 git config --global --add safe.directory "$APP_DIR" 2>/dev/null || true
 if [ -d "$APP_DIR/.git" ]; then
+  old_url=$(git -C "$APP_DIR" remote get-url origin 2>/dev/null || true)
+  # No token given this time: keep one already stored for this repo (private repos need it).
+  if [ -z "$GH_TOKEN" ] && [[ "$old_url" == "https://x-access-token:"*"@github.com/${REPO}.git" ]]; then
+    url="$old_url"
+  fi
   git -C "$APP_DIR" remote set-url origin "$url"
-  git -C "$APP_DIR" fetch -q origin "$BRANCH"
+  git -C "$APP_DIR" fetch -q origin "$BRANCH" \
+    || die "Couldn't download the latest code from github.com/$REPO. If the repo is private, run again with GH_TOKEN=<read-only token>."
   git -C "$APP_DIR" checkout -q "$BRANCH"
   git -C "$APP_DIR" reset -q --hard "origin/$BRANCH"
 else
@@ -128,7 +149,11 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 CRON
 
 say "Building and starting the bot (the first build takes 5-10 minutes)"
+caddy_running=$(docker compose ps -q caddy 2>/dev/null || true)
 docker compose up -d --build
+# On a re-run, restart Caddy so it reads the current Caddyfile (its single-file mount keeps the old one).
+[ -z "$caddy_running" ] || docker compose up -d --force-recreate caddy
+git rev-parse HEAD > .git/deployed-rev   # what update.sh compares against
 
 say "Waiting for the dashboard to come up"
 for _ in $(seq 1 60); do

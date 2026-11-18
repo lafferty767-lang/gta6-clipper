@@ -81,22 +81,39 @@ def _youtube(cfg: Config) -> Check:
         return Check("YouTube Shorts", FAIL, "not set up", "Create a Google OAuth client and paste its ID and secret below.")
     if not os.environ.get("YOUTUBE_REFRESH_TOKEN"):
         return Check("YouTube Shorts", FAIL, "not connected yet", "Press Connect YouTube below.")
-    r = httpx.post("https://oauth2.googleapis.com/token", data={
-        "client_id": os.environ["YOUTUBE_CLIENT_ID"], "client_secret": os.environ["YOUTUBE_CLIENT_SECRET"],
-        "refresh_token": os.environ["YOUTUBE_REFRESH_TOKEN"], "grant_type": "refresh_token"}, timeout=20)
-    j = r.json()
-    if "access_token" not in j:
-        return Check("YouTube Shorts", FAIL, f"Google rejected the login ({j.get('error')})",
-                     "Press Connect YouTube again. If it keeps expiring after 7 days, publish the OAuth consent screen.")
-    ch = httpx.get("https://www.googleapis.com/youtube/v3/channels", params={"part": "snippet", "mine": "true"},
-                   headers={"Authorization": f"Bearer {j['access_token']}"}, timeout=20)
-    items = ch.json().get("items") if ch.status_code == 200 else None
-    if items:
-        return Check("YouTube Shorts", OK, f"connected to channel \"{items[0]['snippet']['title']}\"")
+    try:
+        r = httpx.post("https://oauth2.googleapis.com/token", data={
+            "client_id": os.environ["YOUTUBE_CLIENT_ID"], "client_secret": os.environ["YOUTUBE_CLIENT_SECRET"],
+            "refresh_token": os.environ["YOUTUBE_REFRESH_TOKEN"], "grant_type": "refresh_token"}, timeout=20)
+        j = r.json()
+        if "access_token" not in j:
+            return Check("YouTube Shorts", FAIL, f"Google rejected the login ({j.get('error')})",
+                         "Press Connect YouTube again. If it keeps expiring after 7 days, publish the Google app "
+                         "(SETUP step 6).")
+        ch = httpx.get("https://www.googleapis.com/youtube/v3/channels", params={"part": "snippet", "mine": "true"},
+                       headers={"Authorization": f"Bearer {j['access_token']}"}, timeout=20)
+        body = ch.json()
+    except (httpx.HTTPError, ValueError) as e:
+        return Check("YouTube Shorts", WARN, f"couldn't reach Google: {type(e).__name__}")
     if ch.status_code == 200:
+        items = body.get("items")
+        if items:
+            return Check("YouTube Shorts", OK, f"connected to channel \"{items[0]['snippet']['title']}\"")
         return Check("YouTube Shorts", FAIL, "this Google account has no YouTube channel",
                      "Create a channel at youtube.com, then press Connect YouTube again.")
-    return Check("YouTube Shorts", OK, "connected")
+    err = body.get("error") or {}
+    reasons = {e.get("reason") for e in err.get("errors") or [] if isinstance(e, dict)}
+    reasons |= {d.get("reason") for d in err.get("details") or [] if isinstance(d, dict)}
+    if reasons & {"accessNotConfigured", "SERVICE_DISABLED"}:
+        return Check("YouTube Shorts", FAIL, "the YouTube Data API v3 isn't turned on in your Google project",
+                     "Google Cloud console > APIs & Services > Library > YouTube Data API v3 > Enable, "
+                     "wait a minute, then check again.")
+    if reasons & {"quotaExceeded", "rateLimitExceeded"}:
+        return Check("YouTube Shorts", WARN, "connected, but today's YouTube API quota is used up")
+    if reasons & {"insufficientPermissions", "ACCESS_TOKEN_SCOPE_INSUFFICIENT"}:
+        return Check("YouTube Shorts", WARN, "connected, but this login can't read the channel name",
+                     "Press Connect YouTube again.")
+    return Check("YouTube Shorts", WARN, f"YouTube answered {ch.status_code}: {str(err.get('message', ''))[:120]}")
 
 
 def _tiktok(cfg: Config, db) -> Check:
@@ -199,14 +216,16 @@ def _streamers(cfg: Config) -> Check:
 def run_checks(cfg: Config, db, public_url: str | None = None) -> list[Check]:
     public_url = public_url or os.environ.get("PUBLIC_BASE_URL")
     checks = []
-    for fn in (_tools, lambda: _disk(cfg), _twitch, lambda: _anthropic(cfg), lambda: _youtube(cfg),
-               lambda: _tiktok(cfg, db), lambda: _metricool(cfg, public_url), lambda: _public_url(public_url),
-               lambda: _whisper(cfg), lambda: _streamers(cfg)):
+    for name, fn in (("Video tools", _tools), ("Disk space", lambda: _disk(cfg)), ("Twitch", _twitch),
+                     ("Claude (AI titles)", lambda: _anthropic(cfg)), ("YouTube Shorts", lambda: _youtube(cfg)),
+                     ("TikTok", lambda: _tiktok(cfg, db)), ("Metricool", lambda: _metricool(cfg, public_url)),
+                     ("Public HTTPS address", lambda: _public_url(public_url)),
+                     ("Captions model", lambda: _whisper(cfg)), ("Streamers", lambda: _streamers(cfg))):
         t = time.time()
         try:
             checks.append(fn())
         except Exception as e:  # noqa: BLE001 - one broken check must not hide the others
-            log.exception("health check failed")
-            checks.append(Check(getattr(fn, "__name__", "check"), WARN, f"check crashed: {e}"))
-        log.debug("check took %.1fs", time.time() - t)
+            log.exception("health check %s failed", name)
+            checks.append(Check(name, WARN, f"check crashed: {str(e)[:200]}"))
+        log.debug("check %s took %.1fs", name, time.time() - t)
     return checks

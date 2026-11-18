@@ -56,8 +56,12 @@ class YouTubeDeviceConnector:
         if not (cid and secret):
             self.flow = DeviceFlow(status="error", message="Save the YouTube OAuth client ID and secret first.")
             return self.flow
-        r = httpx.post(GOOGLE_DEVICE_URL, data={"client_id": cid, "scope": " ".join(YOUTUBE_DEVICE_SCOPES)}, timeout=20)
-        j = r.json()
+        try:
+            r = httpx.post(GOOGLE_DEVICE_URL, data={"client_id": cid, "scope": " ".join(YOUTUBE_DEVICE_SCOPES)}, timeout=20)
+            j = r.json()
+        except (httpx.HTTPError, ValueError) as e:
+            self.flow = DeviceFlow(status="error", message=f"Couldn't reach Google ({type(e).__name__}). Try again in a minute.")
+            return self.flow
         if r.status_code != 200 or "device_code" not in j:
             hint = ""
             if j.get("error") in ("invalid_client", "unauthorized_client"):
@@ -74,6 +78,13 @@ class YouTubeDeviceConnector:
         return flow
 
     def _poll(self, flow: DeviceFlow, device_code: str, interval: int, cid: str, secret: str) -> None:
+        try:
+            self._poll_loop(flow, device_code, interval, cid, secret)
+        except Exception as e:  # noqa: BLE001 - never leave the Setup page stuck on "waiting"
+            log.exception("youtube device flow failed")
+            flow.status, flow.message = "error", f"Connecting YouTube failed: {e}. Start again."
+
+    def _poll_loop(self, flow: DeviceFlow, device_code: str, interval: int, cid: str, secret: str) -> None:
         while time.time() < flow.expires_at and flow is self.flow:
             time.sleep(interval)
             try:
@@ -91,7 +102,9 @@ class YouTubeDeviceConnector:
                 continue
             if err:
                 flow.status, flow.message = "error", {
-                    "access_denied": "You pressed Deny on Google's page. Start again and press Allow.",
+                    "access_denied": ("Google refused access. Either Deny was pressed, or your Google app is still in "
+                                      "Testing and this Google account isn't under Audience > Test users. Add it there "
+                                      "(or publish the app, SETUP step 6), then start again."),
                     "expired_token": "The code expired. Start again.",
                 }.get(err, f"Google said: {j.get('error_description') or err}")
                 return
@@ -133,11 +146,15 @@ class TikTokConnector:
         if state not in self._states:
             raise RuntimeError("This TikTok login link expired or didn't come from this dashboard. Start again.")
         self._states.pop(state, None)
-        r = httpx.post(TIKTOK_TOKEN_URL, data={
-            "client_key": os.environ.get("TIKTOK_CLIENT_KEY", ""), "client_secret": os.environ.get("TIKTOK_CLIENT_SECRET", ""),
-            "code": code, "grant_type": "authorization_code", "redirect_uri": self.redirect_uri()},
-            headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=30)
-        j = r.json()
+        try:
+            r = httpx.post(TIKTOK_TOKEN_URL, data={
+                "client_key": os.environ.get("TIKTOK_CLIENT_KEY", ""), "client_secret": os.environ.get("TIKTOK_CLIENT_SECRET", ""),
+                "code": code, "grant_type": "authorization_code", "redirect_uri": self.redirect_uri()},
+                headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=30)
+            j = r.json()
+        except (httpx.HTTPError, ValueError) as e:
+            raise RuntimeError(f"Couldn't reach TikTok to finish the login ({type(e).__name__}). "
+                               "Press Connect TikTok again.") from e
         if "refresh_token" not in j:
             raise RuntimeError(f"TikTok said: {j.get('error_description') or j.get('error') or json.dumps(j)[:200]}")
         self.on_tokens(j)
