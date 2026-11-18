@@ -3,14 +3,20 @@
 # successful build. Runs nightly from /etc/cron.d/gta6-clipper; run it by hand with:  clipper update
 set -euo pipefail
 cd "$(dirname "$0")/.."
-git fetch -q origin
-branch=$(git rev-parse --abbrev-ref HEAD)
+if [ "${1:-}" != "--pulled" ]; then
+  git fetch -q origin
+  git reset -q --hard "origin/$(git rev-parse --abbrev-ref HEAD)"
+  exec bash deploy/update.sh --pulled "$@"   # carry on with the version of this script just pulled
+fi
+shift
+force=""
+[ "${1:-}" = "--force" ] && force=1
 # The last version that built and started fine (written below and by install.sh). Comparing with
-# it, not with the code before this fetch, means a failed build is tried again the next night.
-deployed=$(cat .git/deployed-rev 2>/dev/null || git rev-parse HEAD)
-git reset -q --hard "origin/$branch"
+# it, not with the code before this pull, means a failed build is tried again the next night.
+# No record (installed by an older version): rebuild once, to be safe.
+deployed=$(cat .git/deployed-rev 2>/dev/null || echo unknown)
 after=$(git rev-parse HEAD)
-if [ "$deployed" = "$after" ] && [ "${1:-}" != "--force" ]; then
+if [ "$deployed" = "$after" ] && [ -z "$force" ]; then
   echo "$(date -Is) already up to date ($after)"
   exit 0
 fi
@@ -20,7 +26,7 @@ docker compose up -d --build
 # Caddy reads deploy/Caddyfile through a single-file mount, which keeps showing the old file
 # after git replaces it, so restart Caddy when it changed.
 changed=$(git diff --name-only "$deployed" "$after" 2>/dev/null || echo deploy/Caddyfile)
-if [ "${1:-}" = "--force" ] || grep -qx 'deploy/Caddyfile' <<<"$changed"; then
+if [ -n "$force" ] || grep -qx 'deploy/Caddyfile' <<<"$changed"; then
   docker compose up -d --force-recreate caddy
 fi
 git rev-parse HEAD > .git/deployed-rev

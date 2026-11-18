@@ -305,6 +305,7 @@ for try in 1 2 3; do
   fi
   mark "install attempt \$try failed"; sleep 60
 done
+tail -n 30 /var/log/gta6-clipper-install.log > /dev/console 2>/dev/null   # so Cloud Shell can show the error
 mark "INSTALL-FAILED"
 exit 1
 EOF
@@ -401,7 +402,9 @@ wait_for_install() {
     fi
     if [ "$result" = "GTA6-CLIPPER: INSTALL-FAILED" ]; then
       warn "The install on the server failed. The end of its log:"
-      grep -vE '^\s*$' <<<"$log" | tail -n 25 | sed 's/^/      /'
+      # The lines just before the last INSTALL-FAILED marker (cloud-init prints SSH keys after it).
+      awk '/GTA6-CLIPPER: INSTALL-FAILED/ {n = NR} {a[NR] = $0} END {for (i = (n > 60 ? n - 60 : 1); i < n; i++) print a[i]}' \
+          <<<"$log" | grep -vE '^[[:space:]]*$|GTA6-CLIPPER: ' | tail -n 25 | sed 's/^/      /' || true
       warn "Copy these lines when asking for help. To try again: in Cloud Shell, set Network to Public"
       warn "(Network menu at the top of Cloud Shell), then run:"
       warn "    ssh ubuntu@$IP sudo bash /root/gta6-firstboot.sh"
