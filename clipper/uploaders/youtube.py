@@ -1,7 +1,7 @@
 """YouTube Shorts via the YouTube Data API v3 (videos.insert).
 
 Env: YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN
-Get the refresh token once with:  python -m clipper auth-youtube --client-secrets client_secret.json
+Connect from the dashboard's Setup page (or run: python -m clipper auth-youtube).
 A vertical video of 3 minutes or less is published as a Short automatically.
 """
 from __future__ import annotations
@@ -10,8 +10,6 @@ import os
 from pathlib import Path
 
 from . import Uploader
-
-SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 
 
 class YouTubeUploader(Uploader):
@@ -28,7 +26,7 @@ class YouTubeUploader(Uploader):
         creds = Credentials(None, refresh_token=os.environ["YOUTUBE_REFRESH_TOKEN"],
                             token_uri="https://oauth2.googleapis.com/token",
                             client_id=os.environ["YOUTUBE_CLIENT_ID"],
-                            client_secret=os.environ["YOUTUBE_CLIENT_SECRET"], scopes=SCOPES)
+                            client_secret=os.environ["YOUTUBE_CLIENT_SECRET"])
         return build("youtube", "v3", credentials=creds, cache_discovery=False)
 
     def upload(self, clip: dict, video: Path) -> dict:
@@ -54,13 +52,21 @@ class YouTubeUploader(Uploader):
         return {"id": vid, "url": f"https://youtube.com/shorts/{vid}"}
 
 
-def run_auth_flow(client_secrets: str) -> None:
-    """Run on your own computer (it opens a browser). Prints the refresh token for .env."""
-    from google_auth_oauthlib.flow import InstalledAppFlow
+def run_auth_flow() -> None:
+    """Terminal version of the dashboard's Connect YouTube button (Google device flow)."""
+    import time
 
-    flow = InstalledAppFlow.from_client_secrets_file(client_secrets, SCOPES)
-    creds = flow.run_local_server(port=8765, prompt="consent", access_type="offline")
-    print("\nAdd these to your .env:\n")
-    print(f"YOUTUBE_CLIENT_ID={creds.client_id}")
-    print(f"YOUTUBE_CLIENT_SECRET={creds.client_secret}")
-    print(f"YOUTUBE_REFRESH_TOKEN={creds.refresh_token}")
+    from ..connect import YouTubeDeviceConnector
+
+    got: dict[str, str] = {}
+    conn = YouTubeDeviceConnector(lambda tok: got.setdefault("token", tok))
+    flow = conn.start()
+    if flow.status == "error":
+        raise SystemExit(flow.message)
+    print(f"\nOn any phone or computer open {flow.verification_url} and enter the code:  {flow.user_code}\n")
+    while flow.status == "waiting":
+        time.sleep(2)
+    if flow.status != "done":
+        raise SystemExit(flow.message)
+    print("Connected. Add this line to .env (or paste it on the dashboard's Setup page):\n")
+    print(f"YOUTUBE_REFRESH_TOKEN={got['token']}")

@@ -14,6 +14,7 @@ from .platforms.base import LiveInfo
 from .platforms.kick import KickLive
 from .platforms.twitch import TwitchAPI
 from .platforms.youtube import YouTubeLive
+from .settings import Settings
 from .uploaders import build_uploaders
 
 log = logging.getLogger(__name__)
@@ -75,17 +76,23 @@ class Orchestrator:
         self.cfg: Config = load_config(self.config_path)
         self._cfg_mtime = self.config_path.stat().st_mtime
         self.db = dbm.DB(self.cfg.data_dir / "clipper.db")
-        self.twitch = TwitchAPI(os.environ.get("TWITCH_CLIENT_ID"), os.environ.get("TWITCH_CLIENT_SECRET"))
+        self.settings = Settings(self.cfg.data_dir)  # keys pasted in the dashboard override .env
         self.youtube = YouTubeLive()
         self.kick = KickLive()
         self.processor = ClipProcessor(self.cfg, self.db)
         self.workers: dict[str, StreamWorker] = {}
-        self.public_base_url = os.environ.get("PUBLIC_BASE_URL")
-        self.uploaders = build_uploaders(self.cfg.uploads.targets, self.db, self.public_base_url)
         self.last_check: dict[str, dict] = {}
         self._last_discovery = 0.0
+        self.reload_integrations()
+
+    def reload_integrations(self) -> None:
+        """(Re)builds API clients and uploaders from the current keys. Called after Setup changes."""
+        self.public_base_url = os.environ.get("PUBLIC_BASE_URL")
+        self.twitch = TwitchAPI(os.environ.get("TWITCH_CLIENT_ID"), os.environ.get("TWITCH_CLIENT_SECRET"))
+        self.uploaders = build_uploaders(self.cfg.uploads.targets, self.db, self.public_base_url)
+        self._last_discovery = 0.0
         if not self.twitch.configured:
-            log.warning("TWITCH_CLIENT_ID/SECRET not set: Twitch live checks, viewer clips and discovery are off")
+            log.warning("Twitch keys not set: Twitch live checks, viewer clips and discovery are off")
 
     def streamer_by_name(self, name: str) -> Streamer | None:
         return next((s for s in self.cfg.streamers if s.name == name), None)
@@ -107,6 +114,10 @@ class Orchestrator:
         self.cfg = new
         self.processor.cfg = new
         self.uploaders = build_uploaders(new.uploads.targets, self.db, self.public_base_url)
+        for w in self.workers.values():  # permission/facecam changes apply to running streams too
+            fresh = self.streamer_by_name(w.streamer.name)
+            if fresh:
+                w.streamer = fresh
         log.info("config reloaded (%d streamers)", len(new.streamers))
 
     # --- live checks --------------------------------------------------------------

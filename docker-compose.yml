@@ -1,14 +1,39 @@
 services:
   clipper:
     build: .
+    image: gta6-clipper:local
     container_name: gta6-clipper
     restart: unless-stopped
     env_file: .env
+    # Only reachable from this machine; the public HTTPS address goes through Caddy below.
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     volumes:
-      - ./config.yaml:/app/config.yaml:ro
+      - ./config.yaml:/app/config.yaml   # editable from the dashboard's Settings page
       - ./data:/data
     logging:
       driver: json-file
       options: {max-size: "20m", max-file: "5"}
+
+  caddy:
+    image: caddy:2
+    container_name: gta6-clipper-https
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+      DOMAIN_ALT: ${DOMAIN_ALT:-}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [clipper]
+    logging:
+      driver: json-file
+      options: {max-size: "5m", max-file: "3"}
+
+volumes:
+  caddy_data:
+  caddy_config:

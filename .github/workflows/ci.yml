@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+      - run: pip install -r requirements.txt pytest pyflakes shellcheck-py
+      - run: pyflakes clipper tests
+      - run: shellcheck -S warning deploy/*.sh
+      - run: pytest -q
+
+  docker-amd64:
+    # The image on a normal (x86) server, plus the HTTPS config.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t clipper .
+      - name: Smoke test
+        run: |
+          cp config.example.yaml config.yaml
+          docker run --rm -v "$PWD/config.yaml:/app/config.yaml" clipper --help
+          docker run --rm --entrypoint python clipper -c "import faster_whisper, ctranslate2, curl_cffi, av, numpy; print('imports ok')"
+      - name: Caddyfile is valid (with and without the backup address)
+        run: |
+          for alt in 1-2-3-4.nip.io ""; do
+            docker run --rm -e DOMAIN=1-2-3-4.sslip.io -e DOMAIN_ALT="$alt" \
+              -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2 \
+              caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+          done
+      - run: touch .env && docker compose config -q
+
+  install-arm64:
+    # Runs the real one-line installer on an ARM64 Ubuntu machine, like Oracle's free servers.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run deploy/install.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sudo REPO="${{ github.repository }}" BRANCH="${{ github.head_ref || github.ref_name }}" \
+            GH_TOKEN="$GH_TOKEN" DOMAIN=localhost DOMAIN_ALT= bash deploy/install.sh
+      - name: Check the installed bot
+        run: |
+          set -x
+          curl -fsS http://127.0.0.1:8080/healthz
+          curl -fsSk --retry 10 --retry-delay 3 --retry-all-errors https://localhost/healthz
+          curl -fsSk https://localhost/privacy | grep -q "Privacy policy"
+          test "$(curl -sk -o /dev/null -w '%{http_code}' https://localhost/setup)" = 401
+          clipper status
+          cd /opt/gta6-clipper
+          sudo docker compose exec -T clipper uname -m | grep -q aarch64
+          sudo docker compose exec -T clipper python -c "import faster_whisper, ctranslate2, curl_cffi, av, numpy; print('arm64 imports ok')"
+          sudo docker compose exec -T clipper python -m clipper doctor || true
+      - name: Installer is safe to run twice
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          before=$(sudo grep DASHBOARD_PASSWORD /opt/gta6-clipper/.env)
+          sudo REPO="${{ github.repository }}" BRANCH="${{ github.head_ref || github.ref_name }}" \
+            GH_TOKEN="$GH_TOKEN" DOMAIN=localhost DOMAIN_ALT= bash deploy/install.sh
+          test "$before" = "$(sudo grep DASHBOARD_PASSWORD /opt/gta6-clipper/.env)"
+          curl -fsS http://127.0.0.1:8080/healthz
+      - name: Logs on failure
+        if: failure()
+        run: |
+          cd /opt/gta6-clipper 2>/dev/null && sudo docker compose logs --tail 200 || true

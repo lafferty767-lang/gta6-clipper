@@ -1,13 +1,15 @@
 """TikTok via the official Content Posting API.
 
 Env: TIKTOK_CLIENT_KEY, TIKTOK_CLIENT_SECRET, TIKTOK_REFRESH_TOKEN
-Get the refresh token once with:  python -m clipper auth-tiktok
+Get the refresh token with the Connect TikTok button on the dashboard's Setup page
+(or, without the dashboard: python -m clipper auth-tiktok).
 
 Modes (uploads.targets.tiktok.mode):
   inbox  - (default) sends the video to your TikTok inbox/drafts; you tap Post in the app.
            Works before TikTok has audited your developer app.
   direct - publishes straight to the profile. Until TikTok audits your app, direct posts
-           are forced to private (SELF_ONLY), so use inbox until the audit is approved.
+           are private (SELF_ONLY) and the TikTok account itself must be set to private, so use
+           inbox until the audit is approved.
 """
 from __future__ import annotations
 
@@ -124,7 +126,8 @@ def run_auth_flow() -> None:
 
     key = os.environ.get("TIKTOK_CLIENT_KEY") or input("TikTok client key: ").strip()
     secret = os.environ.get("TIKTOK_CLIENT_SECRET") or input("TikTok client secret: ").strip()
-    redirect = os.environ.get("TIKTOK_REDIRECT_URI") or input("Redirect URI registered in your TikTok app: ").strip()
+    redirect = os.environ.get("TIKTOK_REDIRECT_URI") or input(
+        "Redirect URI registered in your TikTok app (the dashboard's Connect TikTok button is easier): ").strip()
     state = secrets.token_urlsafe(8)
     url = "https://www.tiktok.com/v2/auth/authorize/?" + urllib.parse.urlencode({
         "client_key": key, "scope": "user.info.basic,video.upload,video.publish",

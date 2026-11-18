@@ -1,161 +1,244 @@
 # Setup guide
 
-Plan on about an hour. You need: a small cloud server, a Twitch developer app, and the
-accounts you want to post to. The Claude API key is optional but makes the clips much better.
+This puts the bot on a free Oracle Cloud server. Plan on about an hour of clicking, plus some
+waiting. It costs nothing: Oracle's "Always Free" ARM server is enough for the bot.
 
-## 1. Get a server (VPS)
+The scripts do the technical parts for you: they create the server and its network and firewall,
+install Docker and the bot, set up HTTPS, and update the bot every night. You only create accounts,
+press a few buttons and paste keys into the bot's web dashboard.
 
-Any Linux server with **4 vCPU, 8 GB RAM, 80 GB disk** handles 3-4 live streams at once.
-Examples: Hetzner CPX31 (about €15/month), DigitalOcean 4 vCPU/8 GB, Vultr, Contabo.
-Pick Ubuntu 24.04.
+## What only you can do
 
-Bandwidth: each stream at 720p is about 3-6 Mbit/s, so roughly 1.5-2.5 TB per stream per month
-if someone on your list is live all the time. Pick a provider with generous included traffic
-(Hetzner includes 20 TB in the EU).
+- [ ] **Make the GitHub repo public** (GitHub → the repo → Settings → Danger Zone → Change visibility),
+      so the server can download the code without a password. No keys are stored in the repo.
+- [ ] **Create an Oracle Cloud account** and pick its home region ([step 1](#1-oracle-cloud-account)).
+- [ ] **Paste one command into Oracle Cloud Shell** ([step 2](#2-create-the-server-one-command)).
+- [ ] **Twitch app keys** (required, 5 minutes, [step 4](#4-twitch-required)).
+- [ ] **Google/YouTube app + Connect YouTube** ([step 6](#6-youtube-shorts)).
+- [ ] **TikTok developer app + Connect TikTok** ([step 7](#7-tiktok)).
+- [ ] Claude API key for AI titles and scoring (optional but recommended, [step 5](#5-claude-api-key-optional-recommended)).
+- [ ] Metricool keys (optional, [step 8](#8-metricool-optional)).
+- [ ] **Ask the streamers for permission** and mark them in Settings ([step 9](#9-streamers-and-permission)).
+- [ ] Optional: upgrade Oracle to Pay As You Go. It stays free, gets a server faster and keeps
+      Oracle from reclaiming an idle server ([details](#out-of-capacity)).
 
-On the server:
+## 1. Oracle Cloud account
 
-```bash
-ssh root@YOUR_SERVER_IP
-curl -fsSL https://get.docker.com | sh
-apt-get install -y git
-```
+1. Go to <https://signup.cloud.oracle.com> and sign up.
+2. You need a phone number and a **credit card** (or a debit card that works like one; prepaid and
+   virtual cards are refused). Oracle puts a temporary $1 hold on it to check it and does not charge
+   you unless you upgrade later.
+3. **Home region: choose carefully, it can't be changed.** The free server can only live there.
+   Pick one near you, ideally one with 3 "availability domains", which gives the script more
+   places to find a free server: **US East (Ashburn)**, **US West (Phoenix)**, **US Midwest
+   (Chicago)**, **Germany Central (Frankfurt)** or **UK South (London)**. Don't pick South Korea
+   North (Chuncheon): it has no free ARM servers.
+4. Wait for the "your account is ready" email (minutes to a few hours), then sign in at
+   <https://cloud.oracle.com>.
 
-## 2. Get the code onto the server
+## 2. Create the server (one command)
 
-The repo is private, so create a GitHub token first: GitHub → Settings → Developer settings →
-Fine-grained tokens → "Generate new token", give it read access to `gta6-clipper` (Contents: Read).
+1. In the Oracle console, click the **Developer tools** icon at the top right and choose
+   **Cloud Shell**. A terminal opens at the bottom of the page.
+2. Paste this and press Enter:
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/lafferty767-lang/gta6-clipper/main/deploy/oracle-cloud-shell.sh | bash
+   ```
+3. It creates the network and firewall, then asks Oracle for a free ARM server
+   (2 CPUs, 12 GB memory, 100 GB disk, Ubuntu 24.04). Free ARM servers are popular, so you may see
+   `no free capacity yet` for a while. **Leave the tab open**; it keeps trying every minute.
+   If Cloud Shell closes or stops, run the same command again: it continues where it stopped.
+4. Once the server exists, it installs the bot by itself (10-15 minutes) and the script shows
+   its progress. At the end you get:
+   ```
+   Dashboard: https://123-45-67-89.sslip.io
+   Backup:    https://123-45-67-89.nip.io
+   Username:  admin
+   Password:  ...
+   ```
+   Save these. To see them again later, open Cloud Shell and run `cat ~/gta6-clipper-server.txt`.
 
-```bash
-git clone https://github.com/lafferty767-lang/gta6-clipper
-# username: lafferty767-lang, password: paste the token
-cd gta6-clipper
-cp config.example.yaml config.yaml
-cp .env.example .env
-nano .env        # fill in keys as you go through the steps below
-```
+**If the command fails with "Could not resolve host" or does nothing:** your Cloud Shell has no
+internet access. At the top of the Cloud Shell window, open **Network** and choose **Public
+network**, then run it again. If that option isn't there, do it without internet: open
+[deploy/oracle-cloud-shell.sh](deploy/oracle-cloud-shell.sh) on GitHub, click **Download raw
+file**, then in Cloud Shell use the gear menu → **Upload** to upload it, and run
+`bash oracle-cloud-shell.sh`.
 
-To update later: `git pull && docker compose up -d --build`.
+### Out of capacity
 
-## 3. Twitch app (required for Twitch streamers, viewer clips and discovery)
+"No free capacity" is common and can last hours or days in busy regions. Your options:
 
-1. Go to <https://dev.twitch.tv/console/apps> and log in with any Twitch account.
-2. **Register Your Application**: any name, OAuth Redirect URL `http://localhost`,
-   category "Application Integration", client type **Confidential**.
-3. Open it, copy the **Client ID**, press **New Secret** and copy it.
-4. In `.env`: `TWITCH_CLIENT_ID=...` and `TWITCH_CLIENT_SECRET=...`
+- **Wait.** The script retries every minute for up to 23 hours.
+- **Upgrade to Pay As You Go** (fastest; menu → Billing & Cost Management → Upgrade and Manage
+  Payment). Always Free resources stay free after upgrading and Oracle only bills what goes over
+  the free limits, which this setup doesn't. Oracle puts a temporary $100 hold on your card, and
+  the upgrade can take a day. Paid accounts usually get a server much sooner and reportedly aren't
+  subject to idle reclaiming. To be safe, add a $1 budget alert (Billing → Budgets).
+- **Try a smaller server**, which is easier to place but handles fewer streams at once:
+  `curl -fsSL https://raw.githubusercontent.com/lafferty767-lang/gta6-clipper/main/deploy/oracle-cloud-shell.sh | OCPUS=1 MEMORY_GB=6 bash`
+
+### Keeping it free
+
+- Don't create other ARM servers. The free allowance is 2 CPUs and 12 GB in total; if you go over,
+  Oracle disables the ARM servers.
+- Oracle can reclaim a free server that sits idle for 7 days (CPU, network and memory all under
+  20%). The bot is busy while your streamers are live, but a week with nobody live could get it
+  flagged. Pay As You Go accounts are reportedly exempt.
+- Sign in to Oracle at least once a month; accounts unused for 30 days can be suspended.
+
+## 3. Open the dashboard
+
+Open the **Dashboard** address and log in with `admin` and the password from step 2.
+
+- The very first visit can show a certificate warning for a few minutes while the server gets its
+  free HTTPS certificate. If the address still doesn't work after an hour, the free certificate
+  service for `sslip.io` is busy that week: open the **Backup** address instead, go to **Setup**
+  and press **Use … as the main address**.
+- The **Setup** tab has a status table (green = working) and a box for every key below. Paste a
+  value, press Save, and the bot uses it right away.
+- The **Settings** tab is the bot's settings file: streamers, review mode, upload targets.
+
+## 4. Twitch (required)
+
+Needed to check Twitch streamers, use viewers' clips as a signal, and suggest new streamers.
+
+1. Go to <https://dev.twitch.tv/console/apps> and log in with any Twitch account (Twitch may ask
+   you to turn on two-factor authentication first).
+2. **Register Your Application**: any name, OAuth Redirect URL `http://localhost`, category
+   **Application Integration**, client type **Confidential**.
+3. Open the app, copy the **Client ID**, press **New Secret** and copy the secret.
+4. Paste both into the **Twitch** box on the Setup page and press Save.
 
 YouTube and Kick live checks need no keys.
 
-## 4. Claude API key (AI scoring + titles, optional)
+## 5. Claude API key (optional, recommended)
 
-1. <https://console.anthropic.com> → API Keys → Create key. Add a few dollars of credit.
-2. In `.env`: `ANTHROPIC_API_KEY=...`
+Claude watches each clip's transcript and chat reaction, scores it 1-10, skips weak ones and writes
+the title, description and hashtags. Without a key, clips get simple titles and all go to review.
 
-Each clip is one short request, so even 100 clips a day costs very little. Without a key, clips get
-template titles and every clip goes to review.
+1. <https://console.anthropic.com> → **API Keys** → Create key. Add a few dollars of credit.
+2. Paste it into the **Claude** box on the Setup page.
 
-## 5. YouTube Shorts
+Each clip is one short request, so even 100 clips a day costs little.
 
-You do this part on your own computer, because Google opens a browser to log in.
+## 6. YouTube Shorts
 
-1. <https://console.cloud.google.com> → create a project (e.g. "gta6-clipper").
-2. **APIs & Services → Library** → enable **YouTube Data API v3**.
-3. **OAuth consent screen**: User type External, fill in the app name and your email. Add your
-   Google account under Test users. Then press **Publish app** (so the login doesn't expire after
-   7 days; Google shows an "unverified app" warning for your own use, which is fine).
-4. **Credentials → Create credentials → OAuth client ID → Desktop app**. Download the JSON and
-   save it as `client_secret.json` in the repo folder on your computer.
-5. On your computer, in the repo folder:
-   ```bash
-   pip install python-dotenv google-auth-oauthlib
-   python -m clipper auth-youtube --client-secrets client_secret.json
-   ```
-   A browser opens: pick the YouTube channel you want to post to and allow access.
-6. Copy the three printed lines (`YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET`,
-   `YOUTUBE_REFRESH_TOKEN`) into `.env` on the server.
+You create a small Google "app" that is only for you, then connect your channel with a code.
 
-Quota: a new Google project gets 10,000 API units a day and one upload costs about 1,600, so
-roughly 6 uploads a day. That matches the default `max_per_day: 8` (the extra ones go to TikTok
-or wait for the next day). If you need more, request a quota increase in the Google Cloud console
-(YouTube Data API → Quotas).
+1. Go to <https://console.cloud.google.com> and create a project (e.g. `gta6-clipper`).
+2. **APIs & Services → Library** → search **YouTube Data API v3** → **Enable**.
+3. **Google Auth Platform** (formerly "OAuth consent screen") → **Get started**: app name
+   `GTA 6 Clipper`, your email as support email, Audience **External**, your email as contact.
+4. **Branding**: fill in the three links shown at the bottom of the bot's Setup page
+   (home page `…/about`, privacy policy `…/privacy`, terms `…/terms`). If it asks for an
+   authorized domain, add `sslip.io` (or `nip.io` if you switched to the backup address). If
+   Google won't accept the links, leave them empty and try the next step anyway.
+5. **Audience** → **Publish app** → confirm. This matters: while the app is in "Testing", Google
+   logs you out of it every 7 days. You don't need Google's verification for your own use.
+6. **Clients → Create client**, application type **TVs and Limited Input devices**, any name.
+   Copy the **Client ID** and **Client secret** into the **YouTube** box on the Setup page and Save.
+7. Press **Connect YouTube**. The page shows a code. On your phone or computer open
+   <https://www.google.com/device>, sign in with the Google account that owns your YouTube channel,
+   type the code and allow access. Google warns that the app isn't verified: click **Advanced →
+   Go to GTA 6 Clipper**. That's expected for your own app. The Setup page turns green by itself.
 
-## 6. TikTok
+Uploads are public by default (`privacy` under `uploads.targets.youtube` in Settings). Google
+allows 100 uploads a day per project, far more than the bot's default of 8 a day.
 
-1. <https://developers.tiktok.com> → log in → **Manage apps → Connect an app**.
-2. Add the products **Login Kit** and **Content Posting API**. Turn on the scopes
+## 7. TikTok
+
+1. Go to <https://developers.tiktok.com>, log in and open **Manage apps → Connect an app**.
+2. Fill in the app details. For the website, terms and privacy links, use the three links at the
+   bottom of the bot's Setup page.
+3. Add the products **Login Kit** and **Content Posting API**, and turn on the scopes
    `user.info.basic`, `video.upload` and `video.publish`.
-3. Under Login Kit, add a **Redirect URI**. It must be https. Any https page you control works
-   (the page doesn't need to do anything; you only copy the URL it lands on). Put the same value in
-   `.env` as `TIKTOK_REDIRECT_URI`.
-4. Copy the **Client key** and **Client secret** into `.env`.
-5. While the app is unaudited, use its **Sandbox** and add your TikTok account as a target user.
-6. Get the refresh token (on the server or your computer):
-   ```bash
-   docker compose run --rm clipper auth-tiktok
-   ```
-   Open the printed link, log in with the TikTok account to post to, approve, then paste the
-   URL you land on. Copy the printed `TIKTOK_REFRESH_TOKEN` into `.env`.
+4. **Login Kit → Redirect URI (Web)**: paste the exact address shown in the TikTok box on the Setup
+   page (it ends in `/connect/tiktok/callback`).
+5. **URL properties → Verify**: choose **URL prefix**, enter your dashboard address with a `/` at
+   the end, and download the file TikTok gives you. Upload it in the TikTok box on the Setup page,
+   then press **Verify** in TikTok.
+6. Until TikTok reviews your app, it only works in **Sandbox** mode: create a sandbox, add your
+   TikTok account under **Target users**, and use the sandbox's **Client key** and **Client
+   secret**.
+7. Paste the client key and secret into the **TikTok** box on the Setup page and Save. Press
+   **Connect TikTok**, log in with the account you want to post to, and approve.
 
-Posting modes (`uploads.targets.tiktok.mode` in `config.yaml`):
+How posting works (`mode` under `uploads.targets.tiktok` in Settings):
 
-- `inbox` (default): the video lands in your TikTok inbox as a draft; you add a sound/caption
-  and tap Post in the app. Works before TikTok audits your app.
-- `direct`: posts straight to your profile. Until TikTok approves your app in its audit, direct
-  posts are forced to private. Submit the app for review in the developer portal to post publicly.
+- `inbox` (default): each clip arrives in the TikTok app as a draft notification. You open it, add
+  a sound if you like and tap Post. TikTok allows at most 5 waiting drafts per day, so post or
+  delete them daily.
+- `direct`: posts straight to your profile, but only after TikTok has reviewed (audited) your app.
+  Before that, direct posts are private only and the TikTok account itself must be set to private.
+  To post publicly on autopilot, submit the app for review in the developer portal.
 
-## 7. Metricool (optional, instead of or in addition to direct posting)
+## 8. Metricool (optional)
 
-Metricool's API is on its Advanced plan and above.
+Use this to schedule through Metricool instead of, or as well as, posting directly. Metricool's API
+needs its **Advanced** plan or higher.
 
-1. Metricool → Account settings → **API** → copy the token into `METRICOOL_USER_TOKEN`.
-2. Open your brand in Metricool; the browser URL contains `blogId=...` and `userId=...`.
-   Put them in `METRICOOL_BLOG_ID` and `METRICOOL_USER_ID`.
-3. Metricool downloads the video from your server, so the server needs a public https address.
-   Point a domain (e.g. `clips.yourdomain.com`) at the server and put Caddy in front:
-   ```bash
-   apt-get install -y caddy
-   echo 'clips.yourdomain.com {
-     reverse_proxy localhost:8080
-   }' > /etc/caddy/Caddyfile && systemctl reload caddy
-   ```
-   Then set `PUBLIC_BASE_URL=https://clips.yourdomain.com`. Only approved clips are reachable
-   at their random public link; everything else needs the dashboard password.
-4. In `config.yaml` set `uploads.targets.metricool.enabled: true` and pick the `networks`.
-   If you schedule through Metricool, set `youtube` and `tiktok` targets to `enabled: false` so
-   clips aren't posted twice.
+1. Metricool → Account settings → **API** → copy the token.
+2. Open your brand in Metricool. The browser address contains `userId=...` and `blogId=...`.
+3. Paste all three into the **Metricool** box on the Setup page.
+4. In Settings, set `uploads.targets.metricool.enabled: true` and pick the `networks`. If Metricool
+   posts to YouTube and TikTok for you, set those two targets to `enabled: false` so clips aren't
+   posted twice.
 
-## 8. Start it
+## 9. Streamers and permission
 
-```bash
-nano .env                 # set DASHBOARD_PASSWORD to something strong
-nano config.yaml          # streamers, review_mode, permissions
-docker compose up -d --build
-docker compose logs -f
-```
+Posting other people's streams without permission can get your channels struck or banned, so the bot
+only uploads a streamer's clips once you mark them as allowed. Clips are still made and shown in the
+dashboard either way.
 
-Open `http://YOUR_SERVER_IP:8080` (or your https domain) and log in with `DASHBOARD_USER` /
-`DASHBOARD_PASSWORD`. You'll see who's live, clips waiting for review, and suggested streamers.
+1. Ask the streamer or their team (see [STREAMERS.md](STREAMERS.md) for who to ask and how).
+2. On the **Settings** tab, change that streamer's `permission: unknown` to `permission: granted`
+   and save.
 
-The first clip needs the Whisper speech model, which is downloaded once (about 500 MB for `small`)
-and kept in `data/hf-cache`.
+## 10. Going fully automatic
 
-## 9. Going fully automatic
+Review mode is on at first: every clip waits on the **Clips** tab until you press Approve. Once you
+trust the clips, set `review_mode: false` in Settings. Clips that pass the AI check then upload on
+their own, up to `uploads.max_per_day`, at least `uploads.min_minutes_between` minutes apart.
 
-Once you trust the clips:
+## Everyday use
 
-1. Get permission from the streamers you clip and set `permission: granted` for them (see
-   [STREAMERS.md](STREAMERS.md)).
-2. Set `review_mode: false`. Clips that pass the AI check (`llm.min_score`) upload on their own,
-   up to `uploads.max_per_day`, spaced by `uploads.min_minutes_between`.
+Everything is in the dashboard. The bot updates itself every night (04:23 server time, UTC).
+
+For the server command line: open Oracle Cloud Shell (Network: Public) and run the `SSH:` line from
+`cat ~/gta6-clipper-server.txt`. Then:
+
+| Command | What it does |
+|---|---|
+| `clipper status` | is it running, and the dashboard address |
+| `clipper logs` | watch what the bot is doing (Ctrl+C to stop watching) |
+| `clipper doctor` | what's connected and what's missing |
+| `clipper password` | show the dashboard password |
+| `clipper update` | get the newest version now |
+| `clipper restart` | restart the bot |
 
 ## Troubleshooting
 
 | Symptom | Fix |
 |---|---|
-| Twitch streamers never show as live | check `TWITCH_CLIENT_ID/SECRET`; run `docker compose run --rm clipper check` |
-| A YouTube streamer never shows as live | check the `@handle`; set `game_check: false` if they don't tag the game |
+| Cloud Shell script keeps saying "no free capacity" | see [Out of capacity](#out-of-capacity) |
+| Dashboard address shows a certificate error after an hour | use the Backup address and press **Use … as the main address** on Setup |
+| Twitch streamers never show as live | check the Twitch keys on Setup (the status table tests them) |
+| A YouTube streamer never shows as live | check their `@handle`; set `game_check: false` if they don't tag the game |
 | Kick returns HTTP 403 | Kick's bot protection; it usually clears up, or use their Twitch/YouTube instead |
-| No captions | first run is downloading the Whisper model; see the logs |
-| YouTube `quotaExceeded` | daily quota used up; lower `max_per_day` or request more quota |
-| TikTok posts are private | the app isn't audited yet; use `mode: inbox` or submit for audit |
+| No captions on the first clip | the speech model is still downloading (about 500 MB, once) |
+| YouTube login stopped working after a week | the Google app is still in "Testing"; publish it (step 6.5) and press Connect YouTube again |
+| TikTok "too many pending shares" | more than 5 drafts waiting in the TikTok app; post or delete them |
+| TikTok posts are private | the TikTok app isn't reviewed yet; use `mode: inbox` or submit it for review |
+
+## Using another server instead of Oracle
+
+Any Ubuntu 22.04/24.04 or Debian server with 4 CPUs and 8 GB of memory works (about 3-4 live
+streams at once). Open ports 80 and 443 in the provider's firewall, then on the server run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lafferty767-lang/gta6-clipper/main/deploy/install.sh | sudo bash
+```
+
+It prints the dashboard address and password at the end. To use your own domain, point it at the
+server and run the same line again ending in `| sudo DOMAIN=clips.example.com bash`.

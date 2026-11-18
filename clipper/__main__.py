@@ -4,7 +4,9 @@
   python -m clipper check                    # who on your list is live on GTA 6 right now
   python -m clipper discover                 # biggest GTA 6 streams on Twitch right now
   python -m clipper clip-file VIDEO [--at S] # test detection/editing on a downloaded VOD
-  python -m clipper auth-youtube --client-secrets client_secret.json
+  python -m clipper doctor                   # what's connected, what's missing
+  python -m clipper warmup                   # download the captions model ahead of the first clip
+  python -m clipper auth-youtube             # terminal version of the dashboard's Connect YouTube
   python -m clipper auth-tiktok
 """
 from __future__ import annotations
@@ -51,6 +53,33 @@ def cmd_check(args) -> None:
         info = orch.last_check.get(s.name, {}).get("platforms", {})
         flag = "LIVE on GTA 6" if s.name in live else "not live on GTA 6"
         print(f"{s.name:20s} {flag:20s} permission={s.permission:8s} {info}")
+
+
+def cmd_doctor(args) -> None:
+    from . import db as dbm
+    from .config import load_config
+    from .doctor import run_checks
+    from .settings import Settings
+
+    cfg = load_config(args.config)
+    Settings(cfg.data_dir)  # apply keys saved from the dashboard
+    icon = {"ok": "OK  ", "warn": "WARN", "fail": "FAIL", "off": "--  "}
+    worst = 0
+    for c in run_checks(cfg, dbm.DB(cfg.data_dir / "clipper.db")):
+        print(f"[{icon[c.status]}] {c.name:22s} {c.detail}")
+        if c.fix and c.status != "ok":
+            print(f"       -> {c.fix}")
+        worst = max(worst, {"fail": 2, "warn": 1}.get(c.status, 0))
+    sys.exit(1 if worst == 2 else 0)
+
+
+def cmd_warmup(args) -> None:
+    from .config import load_config
+    from .transcribe import _get_model
+
+    cfg = load_config(args.config)
+    _get_model(cfg.whisper)
+    print(f"whisper model '{cfg.whisper.model}' is ready")
 
 
 def cmd_discover(args) -> None:
@@ -132,9 +161,10 @@ def main(argv: list[str] | None = None) -> None:
     c.add_argument("--warmup", type=int, help="override detection warmup seconds")
     c.add_argument("--max", type=int, default=5, help="max clips to render")
     c.set_defaults(fn=cmd_clip_file)
-    y = sub.add_parser("auth-youtube", help="get a YouTube refresh token (run on your own computer)")
-    y.add_argument("--client-secrets", required=True)
-    y.set_defaults(fn=lambda a: __import__("clipper.uploaders.youtube", fromlist=["x"]).run_auth_flow(a.client_secrets))
+    sub.add_parser("doctor", help="check keys, connections and disk").set_defaults(fn=cmd_doctor)
+    sub.add_parser("warmup", help="download the captions model").set_defaults(fn=cmd_warmup)
+    y = sub.add_parser("auth-youtube", help="connect YouTube with a code (Google device flow)")
+    y.set_defaults(fn=lambda a: __import__("clipper.uploaders.youtube", fromlist=["x"]).run_auth_flow())
     t = sub.add_parser("auth-tiktok", help="get a TikTok refresh token")
     t.set_defaults(fn=lambda a: __import__("clipper.uploaders.tiktok", fromlist=["x"]).run_auth_flow())
     args = p.parse_args(argv)

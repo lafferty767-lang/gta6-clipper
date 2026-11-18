@@ -1,0 +1,9 @@
+# HTTPS in front of the dashboard. The installer puts these in .env:
+#   DOMAIN      <your-ip-with-dashes>.sslip.io, a free hostname that points at your server's IP
+#   DOMAIN_ALT  <your-ip-with-dashes>.nip.io, the same thing from a sister service. It has its own
+#               certificate quota, so it still works in weeks when sslip.io's free certificates run out.
+# Caddy gets and renews a certificate for each automatically (needs ports 80 and 443 open).
+{$DOMAIN:localhost} {$DOMAIN_ALT} {
+	encode gzip
+	reverse_proxy clipper:8080
+}

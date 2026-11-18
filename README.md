@@ -37,16 +37,22 @@ and TikTok (or schedules them through Metricool).
 
 ## Quick start
 
-See **[SETUP.md](SETUP.md)** for the full guide (server, API keys, accounts). Short version:
+**[SETUP.md](SETUP.md)** walks through everything, including the accounts only you can create.
+The short version, on a free Oracle Cloud ARM server:
 
-```bash
-git clone https://github.com/lafferty767-lang/gta6-clipper && cd gta6-clipper
-cp config.example.yaml config.yaml   # streamers, review mode, upload targets
-cp .env.example .env                 # API keys and dashboard password
-docker compose up -d --build
-docker compose logs -f               # watch it work
-# dashboard: http://YOUR_SERVER_IP:8080
-```
+1. Sign up at Oracle Cloud, open **Cloud Shell** and paste:
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/lafferty767-lang/gta6-clipper/main/deploy/oracle-cloud-shell.sh | bash
+   ```
+   It creates the server (retrying while Oracle is out of free capacity), and the server installs
+   Docker, the bot and HTTPS by itself.
+2. Open the dashboard address it prints, go to **Setup**, paste your Twitch/Claude keys and press
+   **Connect YouTube** and **Connect TikTok**.
+
+On any other Ubuntu server: `curl -fsSL https://raw.githubusercontent.com/lafferty767-lang/gta6-clipper/main/deploy/install.sh | sudo bash`
+
+For local development: `cp config.example.yaml config.yaml && cp .env.example .env && docker compose up --build`
+(dashboard on <http://localhost:8080>).
 
 ## Commands
 
@@ -84,6 +90,8 @@ The config is reloaded automatically when you save it.
 | `clipper/editor.py` | 9:16 render + karaoke captions |
 | `clipper/metadata.py` | Claude scoring and titles (template fallback) |
 | `clipper/uploaders/` | YouTube, TikTok, Metricool, local folder |
-| `clipper/dashboard.py` | review web UI |
+| `clipper/dashboard.py` | web dashboard: review clips, Setup (keys, connect buttons), Settings |
+| `clipper/doctor.py` | health checks shown on Setup and by `clipper doctor` |
+| `deploy/` | Oracle Cloud Shell script, server installer, nightly updater, `clipper` command |
 
 Run the tests with `pip install -r requirements.txt pytest && pytest`.
