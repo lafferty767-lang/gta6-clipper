@@ -1,0 +1,14 @@
+services:
+  clipper:
+    build: .
+    container_name: gta6-clipper
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - ./data:/data
+    logging:
+      driver: json-file
+      options: {max-size: "20m", max-file: "5"}

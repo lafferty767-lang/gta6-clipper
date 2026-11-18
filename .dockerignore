@@ -1,0 +1,6 @@
+data
+.env
+.git
+__pycache__
+*.mp4
+*.ts

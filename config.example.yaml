@@ -1,0 +1,147 @@
+# GTA 6 Clipper config. Copy to config.yaml and edit. The bot reloads this file automatically
+# when you save it (no restart needed).
+
+# true  = every clip waits in the dashboard until you press Approve (recommended to start)
+# false = clips that pass the AI check upload automatically
+review_mode: true
+
+# Uploading someone else's stream without permission can get your channels struck or banned.
+# With this on, a streamer's clips are only uploaded when their `permission` below is "granted".
+# Clips are still made and kept in the dashboard so you can see what the bot finds.
+require_permission_to_upload: true
+
+poll_interval_seconds: 60        # how often to check who is live
+max_concurrent_streams: 4        # each stream uses ~3-6 Mbps download + some CPU
+stream_quality: "720p60,720p,best"   # 720p keeps bandwidth down; it's plenty for 1080x1920 shorts
+
+# Text that counts as "playing GTA 6" (matched against the stream's game/category and title)
+game_match: ["grand theft auto vi", "grand theft auto 6", "gta 6", "gta vi", "gta6", "gtavi"]
+
+# ---------------------------------------------------------------------------------------
+# Streamers. platforms: twitch = login, kick = slug, youtube = @handle (or channel id).
+# permission: granted | unknown | denied   (see STREAMERS.md for how to get permission)
+# facecam: optional box for the split layout, as fractions of the frame (x, y, w, h).
+#   Example for a facecam in the bottom-left quarter:  {x: 0.0, y: 0.7, w: 0.22, h: 0.3}
+# game_check: set false for streamers who don't tag the game (clips anything they stream)
+# ---------------------------------------------------------------------------------------
+streamers:
+  - name: IShowSpeed
+    platforms: {youtube: "@IShowSpeed"}
+    permission: unknown
+    hashtags: [ishowspeed, speed]
+    game_check: false          # Speed's YouTube streams often don't set the game; he's on GTA 6 now
+
+  - name: CaseOh
+    platforms: {twitch: caseoh_}
+    permission: unknown
+    hashtags: [caseoh]
+
+  - name: Kai Cenat
+    platforms: {twitch: kaicenat}
+    permission: unknown
+    hashtags: [kaicenat]
+
+  - name: xQc
+    platforms: {kick: xqc, twitch: xqc}
+    permission: unknown
+    hashtags: [xqc]
+
+  - name: Buddha
+    platforms: {twitch: buddha, kick: buddha}
+    permission: unknown
+
+  - name: Summit1g
+    platforms: {twitch: summit1g}
+    permission: unknown
+
+  - name: Lord Kebun
+    platforms: {kick: lordkebun, twitch: lord_kebun}
+    permission: unknown
+
+  - name: Typical Gamer
+    platforms: {youtube: "@TypicalGamer"}
+    permission: unknown
+
+  - name: Sykkuno
+    platforms: {youtube: "@Sykkuno"}
+    permission: unknown
+
+  # Biggest non-English GTA 6 launch streams (off by default; captions follow their language)
+  - name: alanzoka
+    platforms: {twitch: alanzoka}
+    permission: unknown
+    language: pt
+    enabled: false
+  - name: TheGrefg
+    platforms: {twitch: thegrefg}
+    permission: unknown
+    language: es
+    enabled: false
+  - name: DjMaRiiO
+    platforms: {twitch: djmariio}
+    permission: unknown
+    language: es
+    enabled: false
+
+# Twitch "discovery": lists the biggest GTA 6 streams in the dashboard so you can add them above.
+discovery:
+  enabled: true
+  interval_minutes: 15
+  languages: [en]
+  top: 25
+
+# ---------------------------------------------------------------------------------------
+# Moment detection. Score = chat_z*chat + hype_z*hype + audio_z*audio + viewer_clips*viewer_clip
+# Raise `threshold` if you get too many boring clips, lower it if you get too few.
+# ---------------------------------------------------------------------------------------
+detection:
+  threshold: 6.0
+  weights: {chat: 1.0, hype: 1.0, audio: 0.8, viewer_clip: 3.0}
+  clip_before_seconds: 25        # footage kept before the moment
+  clip_after_seconds: 15         # footage kept after it (extended while chat keeps going)
+  max_clip_seconds: 59
+  min_gap_seconds: 90            # no two clips from the same stream closer than this
+  max_clips_per_stream_hour: 6
+  warmup_seconds: 120            # learn the stream's normal chat speed/volume before clipping
+  buffer_seconds: 300
+  # hype_keywords: [...]         # override the default emote/keyword list
+
+# AI judge + titles (needs ANTHROPIC_API_KEY). Without a key, clips get template titles.
+llm:
+  enabled: true
+  model: claude-opus-5-5
+  min_score: 6                   # clips the AI scores below this are parked as "low score"
+
+whisper:
+  model: small                   # tiny | base | small | medium (bigger = better captions, slower)
+  device: cpu
+  compute_type: int8
+
+edit:
+  layout: auto                   # auto (split if facecam set, else blur) | split | blur
+  captions: true
+  credit_overlay: true           # shows "<streamer> live on twitch.tv/..." on the video
+  crf: 21
+  preset: veryfast
+
+# ---------------------------------------------------------------------------------------
+# Uploads. Each target needs its keys in .env (see SETUP.md). Targets without keys are skipped.
+# ---------------------------------------------------------------------------------------
+uploads:
+  max_per_day: 8                 # across all streamers; keep low at first so accounts look natural
+  min_minutes_between: 20
+  targets:
+    youtube:
+      enabled: true
+      privacy: public            # public | unlisted | private
+    tiktok:
+      enabled: true
+      mode: inbox                # inbox = lands in your TikTok drafts (works before app audit) | direct
+    metricool:
+      enabled: false             # schedule through Metricool instead of posting directly
+      networks: [tiktok, youtube, instagram]
+      schedule_delay_minutes: 10
+      timezone: America/Los_Angeles
+    local:
+      enabled: true              # also copy every approved clip to data/exports
+      folder: /data/exports

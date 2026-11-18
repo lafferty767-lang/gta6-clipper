@@ -1,0 +1,9 @@
+.env
+config.yaml
+data/
+client_secret*.json
+__pycache__/
+*.pyc
+.venv/
+*.mp4
+*.ts
