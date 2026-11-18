@@ -32,6 +32,7 @@ STATE_DIR="$HOME/.gta6-clipper"
 STATE="$STATE_DIR/state"
 INFO_FILE="$HOME/gta6-clipper-server.txt"
 INSTANCE=""
+SSH_PUB=""
 
 say()  { printf '\n\033[1;35m==>\033[0m \033[1m%s\033[0m\n' "$*"; }
 info() { printf '    %s\n' "$*"; }
@@ -128,9 +129,19 @@ main() {
   fi
 
   # --- SSH key, so you can log in to the server later if you ever need to ---------------
-  if [ ! -f "$HOME/.ssh/id_ed25519" ]; then
+  # (RSA, because Cloud Shell runs in FIPS mode, which refuses ed25519 keys.) Optional: the
+  # server is set up without SSH, so a failure here doesn't stop anything.
+  local k
+  for k in id_rsa id_ecdsa id_ed25519; do
+    if [ -f "$HOME/.ssh/$k.pub" ]; then SSH_PUB="$HOME/.ssh/$k.pub"; break; fi
+  done
+  if [ -z "$SSH_PUB" ]; then
     mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"
-    ssh-keygen -q -t ed25519 -N "" -f "$HOME/.ssh/id_ed25519" -C "gta6-clipper-cloudshell"
+    if ssh-keygen -q -t rsa -b 4096 -N "" -f "$HOME/.ssh/id_rsa" -C "gta6-clipper-cloudshell" </dev/null; then
+      SSH_PUB="$HOME/.ssh/id_rsa.pub"
+    else
+      warn "Couldn't create an SSH key; continuing without one (you won't need it for normal use)."
+    fi
   fi
 
   # --- network: VCN + internet gateway + route + firewall rules + public subnet ----------
@@ -280,6 +291,8 @@ EOF
   info "Keep this tab open. If it stops, run the same command again: it picks up where it left off."
 
   local attempt=0 rounds=0 start backoff=120 err AD kind st mins
+  local ssh_args=()
+  [ -n "$SSH_PUB" ] && ssh_args=(--ssh-authorized-keys-file "$SSH_PUB")
   start=$(date +%s)
   err="$STATE_DIR/launch-error.txt"
   while :; do
@@ -288,8 +301,7 @@ EOF
       if INSTANCE=$(oci --no-retry compute instance launch -c "$C" --availability-domain "$AD" --display-name "$NAME" \
             --shape "$SHAPE" --shape-config "{\"ocpus\":$OCPUS,\"memoryInGBs\":$MEMORY_GB}" \
             --image-id "$IMAGE" --subnet-id "$SUBNET" --assign-public-ip true \
-            --boot-volume-size-in-gbs "$BOOT_GB" \
-            --ssh-authorized-keys-file "$HOME/.ssh/id_ed25519.pub" --user-data-file "$USERDATA" \
+            --boot-volume-size-in-gbs "$BOOT_GB" ${ssh_args[@]+"${ssh_args[@]}"} --user-data-file "$USERDATA" \
             --query 'data.id' --raw-output 2>"$err"); then
         info "Oracle accepted the request, waiting for the server to start"
         st=$(wait_state 1200 RUNNING TERMINATED)
