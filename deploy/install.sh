@@ -43,8 +43,11 @@ fi
 
 say "Installing system packages"
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
-apt-get install -y -qq git curl ca-certificates openssl >/dev/null
+# On a server's first boot, automatic updates can hold the package lock for a few minutes: retry.
+retry() { local _; for _ in 1 2 3 4 5 6 7 8 9 10; do "$@" && return 0; sleep 20; done; return 1; }
+apt_get() { apt-get -o DPkg::Lock::Timeout=120 "$@"; }
+retry apt_get update -qq || die "Couldn't update the package list (apt-get update)."
+retry apt_get install -y -qq git curl ca-certificates openssl >/dev/null || die "Couldn't install git and curl."
 
 # Small servers (e.g. 1 GB) need swap to build the image and run the captions model.
 mem_mb=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
@@ -74,10 +77,11 @@ fi
 
 if ! command -v docker >/dev/null; then
   say "Installing Docker"
-  curl -fsSL https://get.docker.com | sh >/dev/null
+  get_docker() { curl -fsSL https://get.docker.com -o /tmp/get-docker.sh && sh /tmp/get-docker.sh >/dev/null; }
+  retry get_docker || die "Couldn't install Docker."
 fi
 systemctl enable --now docker >/dev/null 2>&1 || true
-docker compose version >/dev/null 2>&1 || apt-get install -y -qq docker-compose-plugin >/dev/null
+docker compose version >/dev/null 2>&1 || retry apt_get install -y -qq docker-compose-plugin >/dev/null
 [ "$APP_USER" != root ] && usermod -aG docker "$APP_USER" || true
 
 say "Downloading the bot to $APP_DIR"

@@ -7,6 +7,10 @@ The scripts do the technical parts for you: they create the server and its netwo
 install Docker and the bot, set up HTTPS, and update the bot every night. You only create accounts,
 press a few buttons and paste keys into the bot's web dashboard.
 
+**Don't want to wait for Oracle?** A paid server (about $40 a month, or $20 for a smaller one) is
+ready in 15 minutes with no waiting for capacity: see [Using a paid server instead](#using-a-paid-server-instead-vultr).
+Then continue at [step 3](#3-open-the-dashboard).
+
 ## What only you can do
 
 - [ ] **Make the GitHub repo public** (GitHub → the repo → Settings → Danger Zone → Change visibility),
@@ -241,7 +245,39 @@ Cloud Shell) to **Public**, run `cat ~/gta6-clipper-server.txt`, and run the com
 | TikTok "too many pending shares" | more than 5 drafts waiting in the TikTok app; post or delete them |
 | TikTok posts are private | the TikTok app isn't reviewed yet; use `mode: inbox` or submit it for review |
 
-## Using another server instead of Oracle
+## Using a paid server instead (Vultr)
+
+Checked in November 2026: Vultr's 4 CPU / 8 GB server costs $40 a month (billed by the hour, no
+contract, cancel any time), has data centers in Los Angeles and Silicon Valley, and installs the
+bot by itself from a script you paste while creating the server. No terminal needed.
+
+1. Sign up at <https://www.vultr.com> and add a credit card. New accounts currently get their first
+   deposit matched up to $100 (see vultr.com/coupons).
+2. **Deploy** → **Cloud Compute**, shared CPU, **Regular Performance**.
+   - Location: **Los Angeles** or **Silicon Valley** (any US city works if those are full).
+   - Image: **Ubuntu 24.04**.
+   - Plan: **4 vCPU, 8 GB memory, 160 GB** ($40/month). For one streamer at a time, the
+     2 vCPU / 4 GB plan ($20/month) also works; you can upgrade later.
+3. Under **Additional Features**, tick **Enable Cloud-Init User-Data** and paste this, after
+   changing `PICK-A-PASSWORD` to your own dashboard password (letters and numbers only):
+   ```bash
+   #!/bin/bash
+   export DASHBOARD_PASSWORD='PICK-A-PASSWORD'
+   for try in 1 2 3; do
+     curl -fsSL https://raw.githubusercontent.com/lafferty767-lang/gta6-clipper/main/deploy/install.sh -o /root/gta6-install.sh \
+       && bash /root/gta6-install.sh && break
+     sleep 60
+   done
+   ```
+4. Press **Deploy Now** and wait about 15 minutes while it installs the bot.
+5. Copy the server's IP address from the Vultr dashboard (for example `45.76.12.34`), replace the dots
+   with dashes and open `https://45-76-12-34.sslip.io`. Log in as `admin` with your password, then
+   continue at [step 3](#3-open-the-dashboard).
+
+If you get no page after 30 minutes, open the server in Vultr, press **View Console**, log in as
+`root` with the password Vultr shows on the server's page, and run `tail -n 30 /var/log/cloud-init-output.log`.
+
+## Using another server
 
 Any Ubuntu 22.04/24.04 or Debian server with 4 CPUs and 8 GB of memory works (about 3-4 live
 streams at once). Open ports 80 and 443 in the provider's firewall, then on the server run:
