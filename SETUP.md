@@ -7,6 +7,8 @@ The scripts do the technical parts for you: they create the server and its netwo
 install Docker and the bot, set up HTTPS, and update the bot every night. You only create accounts,
 press a few buttons and paste keys into the bot's web dashboard.
 
+**Want to run it on your Mac instead, with no server?** See [Running it on your Mac](#running-it-on-your-mac).
+
 **Don't want to wait for Oracle?** A paid server (about $40 a month, or $20 for a smaller one) is
 ready in 15 minutes with no waiting for capacity: see [Using a paid server instead](#using-a-paid-server-instead-vultr).
 Then continue at [step 3](#3-open-the-dashboard).
@@ -244,6 +246,37 @@ Cloud Shell) to **Public**, run `cat ~/gta6-clipper-server.txt`, and run the com
 | YouTube login stopped working after a week | the Google app is still in "Testing"; publish it (step 6.5) and press Connect YouTube again |
 | TikTok "too many pending shares" | more than 5 drafts waiting in the TikTok app; post or delete them |
 | TikTok posts are private | the TikTok app isn't reviewed yet; use `mode: inbox` or submit it for review |
+
+## Running it on your Mac
+
+Free, and no server needed. The bot works while your Mac is awake and Docker Desktop is running.
+When the lid is closed or the Mac sleeps, it pauses and misses any streams in that time, then picks
+up again by itself.
+
+1. Install **Docker Desktop** from <https://www.docker.com/products/docker-desktop/> (choose Apple
+   Silicon or Intel chip to match your Mac: Apple menu → About This Mac). Open it once and accept.
+   In Docker Desktop's **Settings → General**, turn on **Start Docker Desktop when you sign in**.
+2. Open the **Terminal** app, paste this and press Enter:
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/lafferty767-lang/gta6-clipper/main/deploy/mac/install-mac.sh | bash
+   ```
+   The first time takes 5-10 minutes. At the end it opens the dashboard at <http://localhost:8080>
+   and shows your password (also saved in `GTA6-Clipper/WELCOME.txt` in your home folder).
+3. Keep it awake while plugged in: **System Settings → Battery → Options** → turn on **Prevent
+   automatic sleeping on power adapter when the display is off**.
+4. Continue at [step 4](#4-twitch-required) to add your keys.
+
+Things that work differently on a Mac:
+
+- The public address (needed for Connect TikTok and Metricool) is a free Cloudflare address like
+  `https://some-words.trycloudflare.com`, shown in the TikTok box on the Setup page. It **changes
+  every time the Mac restarts or Docker restarts**, and the bot follows it by itself. TikTok only
+  needs it once: put the current redirect address into TikTok's portal right before you press
+  Connect TikTok (step 7.4). Skip TikTok's "URL properties / Verify" step; the bot uploads files
+  directly, so it isn't needed.
+- To update, paste the same command again. Your keys, settings and clips are kept.
+- To stop it: `cd ~/GTA6-Clipper && docker compose -f docker-compose.yml -f docker-compose.mac.yml stop`.
+- Docker Desktop uses part of your Mac's memory. With 8 GB of memory, watch one or two streamers at a time.
 
 ## Using a paid server instead (Vultr)
 
