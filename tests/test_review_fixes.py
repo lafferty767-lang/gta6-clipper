@@ -109,3 +109,28 @@ def test_api_schema_is_not_public(tmp_path, monkeypatch):
     c = TestClient(create_app(Orchestrator(str(cfg))))
     assert c.get("/openapi.json").status_code in (401, 404)
     assert c.get("/docs").status_code in (401, 404)
+
+
+def test_tunnel_address_becomes_public_address(monkeypatch):
+    from clipper import orchestrator
+
+    class Orch:
+        reloads = 0
+
+        def reload_integrations(self):
+            Orch.reloads += 1
+
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://old.trycloudflare.com")
+    monkeypatch.setattr(httpx, "get", lambda *a, **kw: FakeResp(200, {"hostname": "new-name.trycloudflare.com"}))
+    w = orchestrator.TunnelWatcher(Orch(), "http://tunnel:2000/quicktunnel")
+    w.check()
+    w.check()  # unchanged the second time: no extra reload
+    import os
+    assert os.environ["PUBLIC_BASE_URL"] == "https://new-name.trycloudflare.com"
+    assert Orch.reloads == 1
+
+    def down(*a, **kw):
+        raise httpx.ConnectError("tunnel not up yet")
+    monkeypatch.setattr(httpx, "get", down)
+    w.check()  # no crash, address kept
+    assert os.environ["PUBLIC_BASE_URL"] == "https://new-name.trycloudflare.com"

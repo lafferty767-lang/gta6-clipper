@@ -1,0 +1,22 @@
+# Used on a home computer (Mac) instead of a server, together with docker-compose.yml:
+#   docker compose -f docker-compose.yml -f docker-compose.mac.yml up -d
+# There's no Caddy here. The dashboard is at http://localhost:8080, and a free Cloudflare quick
+# tunnel gives the bot a public https address (for Connect TikTok and Metricool) without opening
+# anything on your router. The address changes when the tunnel restarts; the bot follows it.
+services:
+  clipper:
+    environment:
+      TUNNEL_METRICS_URL: http://tunnel:2000/quicktunnel
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: gta6-clipper-tunnel
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "--metrics", "0.0.0.0:2000", "--url", "http://clipper:8080"]
+    depends_on: [clipper]
+    logging:
+      driver: json-file
+      options: {max-size: "5m", max-file: "3"}
+
+  caddy:
+    profiles: ["server"]   # not started on a home computer

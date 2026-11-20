@@ -71,6 +71,36 @@ class UploadManager(threading.Thread):
         db.update_clip(clip["id"], status=status, uploads=results, error="; ".join(errors) or None)
 
 
+class TunnelWatcher(threading.Thread):
+    """On a home computer the public https address comes from a Cloudflare quick tunnel, which gets
+    a new random *.trycloudflare.com name each time it starts. This asks the tunnel container for
+    its current name and makes it the bot's public address (for Connect TikTok and Metricool)."""
+
+    def __init__(self, orch: "Orchestrator", url: str):
+        super().__init__(daemon=True, name="tunnel")
+        self.orch, self.url = orch, url
+
+    def check(self) -> None:
+        import httpx
+
+        try:
+            host = (httpx.get(self.url, timeout=5).json() or {}).get("hostname") or ""
+        except (httpx.HTTPError, ValueError):
+            return
+        if not host:
+            return
+        address = f"https://{host}"
+        if address != os.environ.get("PUBLIC_BASE_URL"):
+            os.environ["PUBLIC_BASE_URL"] = address
+            self.orch.reload_integrations()
+            log.info("public address is now %s", address)
+
+    def run(self) -> None:
+        while True:
+            self.check()
+            time.sleep(20)
+
+
 class Orchestrator:
     def __init__(self, config_path: str):
         self.config_path = Path(config_path)
@@ -203,6 +233,8 @@ class Orchestrator:
             log.warning("%d upload(s) were interrupted by a restart; they're under Failed with a Retry button", n)
         self.processor.start()
         UploadManager(self).start()
+        if url := os.environ.get("TUNNEL_METRICS_URL"):
+            TunnelWatcher(self, url).start()
         names = ", ".join(s.name for s in self.cfg.streamers if s.enabled)
         log.info("clipper started; watching for: %s", names)
         log.info("review_mode=%s, upload targets: %s", self.cfg.review_mode,

@@ -20,7 +20,7 @@ jobs:
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg
       - run: pip install -r requirements.txt pytest pyflakes shellcheck-py
       - run: pyflakes clipper tests
-      - run: shellcheck -S warning deploy/*.sh
+      - run: shellcheck -S warning deploy/*.sh deploy/mac/*.sh
       - run: python -m pytest -q
 
   docker-amd64:
@@ -87,3 +87,42 @@ jobs:
         if: failure()
         run: |
           cd /opt/gta6-clipper 2>/dev/null && sudo docker compose logs --tail 200 || true
+
+  home-computer:
+    # The Mac setup (deploy/mac/install-mac.sh + docker-compose.mac.yml), run on Linux: same
+    # Docker Compose stack, with the Cloudflare quick tunnel instead of Caddy.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - name: Run the Mac installer
+        run: |
+          ALLOW_NON_MAC=1 REPO="${{ github.repository }}" BRANCH="${{ github.head_ref || github.ref_name }}" \
+            APP_DIR="$RUNNER_TEMP/GTA6-Clipper" bash deploy/mac/install-mac.sh
+      - name: Check the bot and its public address
+        run: |
+          set -x
+          cd "$RUNNER_TEMP/GTA6-Clipper"
+          curl -fsS http://127.0.0.1:8080/healthz
+          pw=$(grep '^DASHBOARD_PASSWORD=' .env | cut -d= -f2-)
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/setup)" = 401
+          curl -fsS -u "admin:$pw" http://127.0.0.1:8080/setup > /dev/null
+          # the bot picks up the tunnel's address by itself (checked every 20 s)
+          for i in $(seq 1 30); do
+            docker compose -f docker-compose.yml -f docker-compose.mac.yml logs clipper | grep -q "public address is now https://" && break
+            sleep 5
+          done
+          docker compose -f docker-compose.yml -f docker-compose.mac.yml logs clipper | grep "public address is now https://"
+          url=$(docker compose -f docker-compose.yml -f docker-compose.mac.yml logs clipper | grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' | tail -n 1)
+          curl -fsS --retry 12 --retry-delay 5 --retry-all-errors "$url/privacy" | grep -q "Privacy policy"
+          # caddy isn't started on a home computer
+          test -z "$(docker compose -f docker-compose.yml -f docker-compose.mac.yml ps -q caddy)"
+      - name: Running it again keeps the password
+        run: |
+          before=$(grep DASHBOARD_PASSWORD "$RUNNER_TEMP/GTA6-Clipper/.env")
+          ALLOW_NON_MAC=1 REPO="${{ github.repository }}" BRANCH="${{ github.head_ref || github.ref_name }}" \
+            APP_DIR="$RUNNER_TEMP/GTA6-Clipper" bash deploy/mac/install-mac.sh
+          test "$before" = "$(grep DASHBOARD_PASSWORD "$RUNNER_TEMP/GTA6-Clipper/.env")"
+      - name: Logs on failure
+        if: failure()
+        run: cd "$RUNNER_TEMP/GTA6-Clipper" && docker compose -f docker-compose.yml -f docker-compose.mac.yml logs --tail 100 || true
