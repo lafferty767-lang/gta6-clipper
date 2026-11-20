@@ -20,19 +20,35 @@ fi
 
 # --- Docker Desktop ---------------------------------------------------------------------
 say "Checking Docker Desktop"
-if ! docker info >/dev/null 2>&1; then
-  if [ -d /Applications/Docker.app ]; then
-    info "starting Docker Desktop..."
-    open -a Docker
-    for _ in $(seq 1 60); do docker info >/dev/null 2>&1 && break; sleep 3; done
-  fi
-  if ! docker info >/dev/null 2>&1; then
+# Docker Desktop doesn't always put its 'docker' command where Terminal looks, so look for it.
+for d in /usr/local/bin /opt/homebrew/bin "$HOME/.docker/bin" /Applications/Docker.app/Contents/Resources/bin \
+         "$HOME/Applications/Docker.app/Contents/Resources/bin"; do
+  [ -x "$d/docker" ] && PATH="$PATH:$d"
+done
+export PATH
+app=""
+for a in /Applications/Docker.app "$HOME/Applications/Docker.app"; do [ -d "$a" ] && app="$a" && break; done
+if ! command -v docker >/dev/null 2>&1; then
+  if [ -z "$app" ]; then
     command -v open >/dev/null && open "$DOCKER_URL"
-    die "Docker Desktop isn't installed or running yet. Download it from $DOCKER_URL
-   (choose \"Apple Silicon\" or \"Intel chip\" to match your Mac), open it once and accept its
-   terms, then paste this command again."
+    die "Docker Desktop isn't installed in Applications. Download it from $DOCKER_URL
+   (choose \"Apple Silicon\" or \"Intel chip\" to match your Mac), drag Docker into the
+   Applications folder, open it from there and accept its terms, then paste this command again."
   fi
+  die "Docker Desktop is installed, but its 'docker' command is missing. In Docker Desktop open
+   Settings > Advanced, choose \"System\" for the CLI tools, press Apply, then paste this command again."
 fi
+if ! docker info >/dev/null 2>&1; then
+  info "waiting for Docker Desktop to start (up to 3 minutes)..."
+  [ -n "$app" ] && open -a "$app" 2>/dev/null || true
+  for _ in $(seq 1 60); do docker info >/dev/null 2>&1 && break; sleep 3; done
+fi
+if ! docker info >/dev/null 2>&1; then
+  docker info 2>&1 | tail -n 3 | sed 's/^/    docker says: /' || true
+  die "Docker Desktop isn't ready. Open it, wait until its window says \"Engine running\" (bottom left),
+   accept any terms or sign-in prompt (you can skip signing in), then paste this command again."
+fi
+docker compose version >/dev/null 2>&1 || die "Docker Compose is missing. Update Docker Desktop to the latest version."
 info "Docker is running"
 
 # --- download the bot (keeps .env, config.yaml and data/) ---------------------------------
