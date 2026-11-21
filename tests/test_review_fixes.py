@@ -155,3 +155,41 @@ def test_tiktok_login_survives_tunnel_address_change(monkeypatch):
     c.finish("code", state)
     assert sent["redirect_uri"] == "https://first.trycloudflare.com/connect/tiktok/callback"
     assert got["refresh_token"] == "r"
+
+
+def test_crashed_page_shows_the_error_only_when_signed_in(tmp_path, monkeypatch):
+    from clipper.dashboard import create_app
+    from clipper.orchestrator import Orchestrator
+
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "pw")
+    cfg = tmp_path / "config.yaml"
+    shutil.copy(ROOT / "config.example.yaml", cfg)
+    monkeypatch.setenv("CLIPPER_DATA_DIR", str(tmp_path / "data"))
+    orch = Orchestrator(str(cfg))
+    c = TestClient(create_app(orch), raise_server_exceptions=False)
+    assert c.get("/", auth=("admin", "pw")).status_code == 200
+
+    def boom():
+        raise KeyError("kaput")
+    orch.status = boom
+    r = c.get("/", auth=("admin", "pw"))
+    assert r.status_code == 500 and "kaput" in r.text
+
+
+def test_clips_page_handles_missing_titles_and_errors(tmp_path, monkeypatch):
+    from clipper.dashboard import create_app
+    from clipper.orchestrator import Orchestrator
+
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "pw")
+    cfg = tmp_path / "config.yaml"
+    shutil.copy(ROOT / "config.example.yaml", cfg)
+    monkeypatch.setenv("CLIPPER_DATA_DIR", str(tmp_path / "data"))
+    orch = Orchestrator(str(cfg))
+    orch.db.add_clip(streamer="a", platform="twitch", channel="a", status=dbm.FAILED,
+                     uploads={"tiktok": {"ok": False, "error": None}})
+    orch.db.upsert_discovered("twitch", "foo", "Foo", 10, None, "en")
+    orch.status = lambda: {"workers": [{"streamer": "a", "platform": "youtube", "url": "u", "title": None,
+                                        "viewers": 1, "since": time.time(), "clips": 0, "score": {}}],
+                           "checks": {}, "review_mode": True, "uploaders": []}
+    c = TestClient(create_app(orch))
+    assert c.get("/", auth=("admin", "pw")).status_code == 200

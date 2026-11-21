@@ -16,6 +16,7 @@ import re
 import secrets
 import threading
 import time
+import traceback
 from pathlib import Path
 from urllib.parse import urlencode, urlparse
 
@@ -127,6 +128,30 @@ def create_app(orch) -> FastAPI:
     db: dbm.DB = orch.db
     write = [Depends(auth), Depends(same_origin)]
 
+    def signed_in(request: Request) -> bool:
+        import base64
+        h = request.headers.get("authorization") or ""
+        if not h.lower().startswith("basic "):
+            return False
+        try:
+            u, _, pw = base64.b64decode(h[6:]).decode().partition(":")
+        except ValueError:
+            return False
+        return secrets.compare_digest(u, user) and secrets.compare_digest(pw, password)
+
+    @app.exception_handler(Exception)
+    async def crashed(request: Request, exc: Exception):
+        """Shows what broke instead of a bare "Internal Server Error", so a screenshot is enough to fix it."""
+        log.exception("dashboard page %s crashed", request.url.path)
+        if not signed_in(request):
+            return PlainTextResponse("Internal Server Error", 500)
+        tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)[-6:])
+        return HTMLResponse(
+            f"<!doctype html><meta charset=utf-8><body style='font:15px system-ui;padding:20px'>"
+            f"<h2>This page hit an error</h2><p>Send a screenshot of this to get it fixed. "
+            f"<a href='/setup'>Setup</a> · <a href='/settings'>Settings</a></p>"
+            f"<pre style='white-space:pre-wrap;background:#eee;padding:12px'>{e(tb)}</pre>", 500)
+
     def reload_after_keys() -> None:
         orch.reload_integrations()
         with checks_lock:
@@ -167,7 +192,7 @@ def create_app(orch) -> FastAPI:
         ups = c.get("uploads") or {}
         up_txt = " · ".join(
             f"{k}: " + (f"<a href='{e(v.get('url'))}' target=_blank>ok</a>" if v.get("ok") and v.get("url")
-                        else ("ok" if v.get("ok") else f"<span class=bad>{e(v.get('error', '')[:80])}</span>"))
+                        else ("ok" if v.get("ok") else f"<span class=bad>{e(str(v.get('error') or '')[:80])}</span>"))
             for k, v in ups.items() if isinstance(v, dict))
         return f"""<div class=card>
 <video controls preload=metadata src="/media/{c['id']}"></video>
@@ -191,7 +216,7 @@ def create_app(orch) -> FastAPI:
         st = orch.status()
         cfg = orch.cfg
         live_rows = "".join(
-            f"<tr><td><b>{e(w['streamer'])}</b></td><td>{e(w['platform'])}</td><td><a href='{e(w['url'])}' target=_blank>{e(w['title'][:80])}</a></td>"
+            f"<tr><td><b>{e(w['streamer'])}</b></td><td>{e(w['platform'])}</td><td><a href='{e(w['url'])}' target=_blank>{e((w.get('title') or '')[:80])}</a></td>"
             f"<td>{e(w['viewers'])}</td><td>{_ago(w['since'])}</td><td>{e(w['clips'])}</td><td>{e((w.get('score') or {}).get('score'))}</td></tr>"
             for w in st["workers"]) or "<tr><td colspan=7 class=meta>Nobody on the list is live on GTA 6 right now.</td></tr>"
         check_rows = "".join(
