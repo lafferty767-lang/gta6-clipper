@@ -227,3 +227,50 @@ def test_whisper_gets_samples_not_a_file_name(tmp_path, monkeypatch):
             raise TypeError("open() got an unexpected keyword argument 'metadata_errors'")
     monkeypatch.setattr(tr, "_get_model", lambda cfg: Model())
     assert tr.transcribe(wav, None) == ("", [])  # a whisper failure no longer kills the clip
+
+
+def _stream_like_stack(seed=0):
+    """Gameplay that changes every frame, with a calm 'webcam' rectangle where a small blob moves."""
+    import numpy as np
+    rng = np.random.default_rng(seed)
+    room = rng.integers(40, 200, (60, 70)).astype(np.float32)
+    frames = []
+    for i in range(30):
+        f = rng.integers(0, 255, (180, 320)).astype(np.float32)
+        cam = room.copy()
+        cam[20:35, 25 + i % 10:40 + i % 10] = 255 if i % 2 else 0   # the streamer moving a little
+        f[70:130, 0:70] = cam
+        frames.append(f)
+    return np.stack(frames)
+
+
+def test_finds_the_webcam_box():
+    from clipper import facecam
+    box = facecam.find_box(_stream_like_stack(), faces=[(0.1, 0.45, 0.05, 0.1)])
+    assert box is not None
+    assert box.x == pytest.approx(0, abs=0.02) and box.y == pytest.approx(70 / 180, abs=0.02)
+    assert box.w == pytest.approx(70 / 320, abs=0.02) and box.h == pytest.approx(60 / 180, abs=0.02)
+
+
+def test_no_webcam_means_no_box():
+    import numpy as np
+    from clipper import facecam
+    noise = np.random.default_rng(1).integers(0, 255, (30, 180, 320)).astype(np.float32)
+    assert facecam.find_box(noise, faces=[]) is None
+    # ...unless one face sits in the same place the whole time: frame the area around it
+    faces = [(0.7, 0.1, 0.05, 0.09)] * 20
+    box = facecam.find_box(noise, faces=faces)
+    assert box and box.x < 0.725 < box.x + box.w and box.y < 0.145 < box.y + box.h
+
+
+def test_split_layout_renders_streamer_on_top(tmp_path):
+    import subprocess
+    from clipper.config import Edit, Facecam
+    from clipper.editor import probe_size, render_vertical
+    from clipper.transcribe import Word
+    src = tmp_path / "raw.mp4"
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=1280x720:rate=30:duration=3",
+                    "-pix_fmt", "yuv420p", str(src)], check=True)
+    out = render_vertical(src, 0.5, 2, tmp_path / "final.mp4", Edit(), Facecam(0.0, 0.4, 0.2, 0.28),
+                          [Word(0.1, 0.5, "no"), Word(0.5, 0.9, "way")], "someone live on twitch.tv/someone")
+    assert probe_size(out) == (1080, 1920)

@@ -1,8 +1,9 @@
 """Renders a raw clip into a vertical 9:16 short with burned-in word-by-word captions.
 
 Layouts:
-  split - facecam on top, gameplay below (needs the streamer's facecam box in config)
-  blur  - gameplay in the middle over a blurred, zoomed copy of itself (works for anyone)
+  split - the streamer's webcam on the top half, gameplay on the bottom half, captions on the seam
+          (the webcam box comes from config, or is found automatically, see facecam.py)
+  blur  - gameplay in the middle over a blurred, zoomed copy of itself (when no webcam is found)
 """
 from __future__ import annotations
 
@@ -101,13 +102,22 @@ def render_vertical(raw: Path, offset: float, duration: float, out: Path, cfg: E
         cam_h = cfg.facecam_height
         game_h = H - cam_h
         f = facecam
+        sw, sh = probe_size(raw)
+        # gameplay: the widest 1080:game_h slice of the frame, moved off the webcam where possible
+        cw = min(sw, round(sh * W / game_h / 2) * 2)
+        x0 = (sw - cw) / 2
+        cam_l, cam_r = f.x * sw, (f.x + f.w) * sw
+        if cam_r <= sw / 2 and x0 < cam_r:
+            x0 = min(cam_r, sw - cw)
+        elif cam_l >= sw / 2 and x0 + cw > cam_l:
+            x0 = max(cam_l - cw, 0)
         graph = (
-            f"[0:v]crop=iw*{f.w}:ih*{f.h}:iw*{f.x}:ih*{f.y},"
+            f"[0:v]crop=iw*{f.w:.4f}:ih*{f.h:.4f}:iw*{f.x:.4f}:ih*{f.y:.4f},"
             f"scale={W}:{cam_h}:force_original_aspect_ratio=increase,crop={W}:{cam_h},setsar=1[cam];"
-            f"[0:v]crop='min(iw,ih*{W}/{game_h})':ih,scale={W}:{game_h},setsar=1[game];"
+            f"[0:v]crop={cw}:{sh}:{int(x0)}:0,scale={W}:{game_h},setsar=1[game];"
             f"[cam][game]vstack=inputs=2,fps=30[v0]")
-        cap_y = cam_h + int(game_h * 0.38)
-        credit_y = cam_h + 30
+        cap_y = cam_h                      # captions sit on the seam between streamer and gameplay
+        credit_y = H - 420                 # above TikTok/Shorts buttons and caption text
     else:
         fg_h = BLUR_FG_HEIGHT
         graph = (

@@ -83,7 +83,7 @@ class Edit:
     layout: str = "auto"  # auto | split | blur
     width: int = 1080
     height: int = 1920
-    facecam_height: int = 640
+    facecam_height: int = 960  # split layout: height of the streamer half (of 1920)
     captions: bool = True
     credit_overlay: bool = True
     font_file: str = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"

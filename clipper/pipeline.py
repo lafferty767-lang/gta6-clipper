@@ -12,10 +12,11 @@ from pathlib import Path
 from . import db as dbm
 from .audio import loudness_series
 from .chat import make_chat_source
-from .config import Config, Streamer
+from .config import Config, Facecam, Streamer
 from .cutter import cut_from_segments
 from .detector import Moment, MomentDetector
 from .editor import render_vertical
+from .facecam import detect_facecam, detect_from_segments
 from .metadata import credit_line, judge_clip
 from .platforms.base import LiveInfo
 from .recorder import Recorder, Segment
@@ -38,6 +39,7 @@ class Job:
     offset: float
     duration: float
     keep_raw: bool = False  # True when raw is the user's own file (clip-file command)
+    facecam: Facecam | None = None  # webcam box found on the live stream
 
 
 class ClipProcessor(threading.Thread):
@@ -78,7 +80,10 @@ class ClipProcessor(threading.Thread):
         meta = judge_clip(cfg.llm, s, info.platform, info.channel, info.title, text,
                           job.moment.chat_sample, job.moment.signals)
         final = work / "final.mp4"
-        render_vertical(job.raw, job.offset, job.duration, final, cfg.edit, s.facecam, words,
+        cam = s.facecam or job.facecam
+        if not cam and cfg.edit.layout in ("auto", "split"):
+            cam = detect_facecam(job.raw, job.offset, job.duration)
+        render_vertical(job.raw, job.offset, job.duration, final, cfg.edit, cam, words,
                         credit_line(s, info.platform, info.channel))
         if not job.keep_raw:
             job.raw.unlink(missing_ok=True)
@@ -121,6 +126,9 @@ class StreamWorker(threading.Thread):
                                      self.detector.add_chat)
         self.pending: list[Moment] = []
         self.clips_made = 0
+        self.facecam: Facecam | None = None    # webcam box found on this stream
+        self._facecam_misses = 0
+        self._facecam_thread: threading.Thread | None = None
         self._stop = threading.Event()
 
     # --- lifecycle ----------------------------------------------------------------
@@ -147,6 +155,7 @@ class StreamWorker(threading.Thread):
         if self.chat:
             self.chat.start()
         last_clip_poll = time.time()
+        next_facecam = time.time() + 60
         try:
             while not self._stop.is_set():
                 time.sleep(1)
@@ -159,6 +168,9 @@ class StreamWorker(threading.Thread):
                 if self.twitch_api and self.info.platform == "twitch" and now - last_clip_poll > 45:
                     self._poll_viewer_clips(last_clip_poll - 15)
                     last_clip_poll = now
+                if now >= next_facecam:
+                    next_facecam = now + 300
+                    self._refresh_facecam()
                 if self.recorder.finished.is_set() and not self.pending:
                     break
                 if now - self.recorder.last_segment_at > 120:
@@ -169,6 +181,24 @@ class StreamWorker(threading.Thread):
             if self.chat:
                 self.chat.stop()
             log.info("stopped watching %s (%d clips)", self.streamer.name, self.clips_made)
+
+    def _refresh_facecam(self) -> None:
+        """Looks for the webcam box over the buffered minutes of stream, in the background."""
+        if self.streamer.facecam or self.cfg.edit.layout not in ("auto", "split"):
+            return
+        if self._facecam_thread and self._facecam_thread.is_alive():
+            return
+
+        def work():
+            box = detect_from_segments([s.path for s in self.recorder.completed_segments()])
+            if box:
+                self.facecam, self._facecam_misses = box, 0
+            else:
+                self._facecam_misses += 1
+                if self._facecam_misses >= 3:   # webcam gone for ~15 minutes
+                    self.facecam = None
+        self._facecam_thread = threading.Thread(target=work, daemon=True, name=f"facecam-{slug(self.streamer.name)}")
+        self._facecam_thread.start()
 
     def _poll_viewer_clips(self, since: float) -> None:
         bid = self.info.extra.get("broadcaster_id")
@@ -206,4 +236,4 @@ class StreamWorker(threading.Thread):
             return
         self.db.update_clip(clip_id, raw_path=str(raw))
         self.clips_made += 1
-        self.processor.submit(Job(clip_id, self.streamer, self.info, m, raw, offset, duration))
+        self.processor.submit(Job(clip_id, self.streamer, self.info, m, raw, offset, duration, facecam=self.facecam))

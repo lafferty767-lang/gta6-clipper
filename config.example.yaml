@@ -146,7 +146,8 @@ whisper:
   compute_type: int8
 
 edit:
-  layout: auto                   # auto (split if facecam set, else blur) | split | blur
+  layout: auto                   # auto: streamer's webcam on top half + gameplay below (webcam found
+                                 # automatically, or a streamer's facecam box), else blur | split | blur
   captions: true
   credit_overlay: true           # shows "<streamer> live on twitch.tv/..." on the video
   crf: 21
