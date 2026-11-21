@@ -208,3 +208,22 @@ def test_clip_that_broke_before_rendering_has_no_player(tmp_path, monkeypatch):
     html = TestClient(create_app(orch)).get("/", auth=("admin", "pw")).text
     assert "No video" in html and "ffmpeg said no" in html
     assert "<video" not in html and "Retry upload" not in html
+
+
+def test_whisper_gets_samples_not_a_file_name(tmp_path, monkeypatch):
+    import subprocess
+    import numpy as np
+    from clipper import transcribe as tr
+    src = tmp_path / "in.mp4"
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
+                    "-ac", "2", "-ar", "44100", str(src)], check=True)
+    wav = tr.extract_wav(src, 0.5, 1.0, tmp_path / "a.wav")
+    samples = tr.load_wav(wav)
+    assert samples.dtype == np.float32 and 15000 < len(samples) < 17000 and 0.05 < abs(samples).max() <= 1
+
+    class Model:
+        def transcribe(self, audio, **kw):
+            assert not isinstance(audio, (str, Path))
+            raise TypeError("open() got an unexpected keyword argument 'metadata_errors'")
+    monkeypatch.setattr(tr, "_get_model", lambda cfg: Model())
+    assert tr.transcribe(wav, None) == ("", [])  # a whisper failure no longer kills the clip
