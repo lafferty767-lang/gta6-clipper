@@ -380,7 +380,8 @@ def create_app(orch) -> FastAPI:
     @app.get("/connect/tiktok", dependencies=[Depends(auth)])
     def connect_tiktok():
         try:
-            return RedirectResponse(tt_connector.authorize_url(), 302)
+            mode = ((orch.cfg.uploads.targets.get("tiktok") or {}).get("mode") or "inbox").lower()
+            return RedirectResponse(tt_connector.authorize_url(direct=mode == "direct"), 302)
         except RuntimeError as ex:
             return go("/setup", msg=str(ex))
 

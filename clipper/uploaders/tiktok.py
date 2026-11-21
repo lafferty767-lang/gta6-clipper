@@ -130,7 +130,7 @@ def run_auth_flow() -> None:
         "Redirect URI registered in your TikTok app (the dashboard's Connect TikTok button is easier): ").strip()
     state = secrets.token_urlsafe(8)
     url = "https://www.tiktok.com/v2/auth/authorize/?" + urllib.parse.urlencode({
-        "client_key": key, "scope": "user.info.basic,video.upload,video.publish",
+        "client_key": key, "scope": "user.info.basic,video.upload",
         "response_type": "code", "redirect_uri": redirect, "state": state})
     print(f"\n1) Open this URL, log in with the TikTok account you want to post to, and approve:\n\n{url}\n")
     back = input("2) Paste the full URL you were redirected to: ").strip()

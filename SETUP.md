@@ -163,7 +163,7 @@ allows 100 uploads a day per project, far more than the bot's default of 5 a day
 2. Fill in the app details. For the website, terms and privacy links, use the three links at the
    bottom of the bot's Setup page.
 3. Add the products **Login Kit** and **Content Posting API**, and turn on the scopes
-   `user.info.basic`, `video.upload` and `video.publish`.
+   `user.info.basic` and `video.upload` (`video.publish` appears only if you turn on Direct Post; inbox mode doesn't need it).
 4. **Login Kit → Redirect URI (Web)**: paste the exact address shown in the TikTok box on the Setup
    page (it ends in `/connect/tiktok/callback`).
 5. **URL properties → Verify**: choose **URL prefix**, enter your dashboard address with a `/` at

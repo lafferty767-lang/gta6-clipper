@@ -30,7 +30,10 @@ YOUTUBE_DEVICE_SCOPES = ["https://www.googleapis.com/auth/youtube"]
 
 TIKTOK_AUTH_URL = "https://www.tiktok.com/v2/auth/authorize/"
 TIKTOK_TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/"
-TIKTOK_SCOPES = "user.info.basic,video.upload,video.publish"
+# Inbox (drafts) mode needs only video.upload. video.publish exists only once "Direct Post" is turned
+# on in the TikTok app, so it's requested only in direct mode.
+TIKTOK_SCOPES = "user.info.basic,video.upload"
+TIKTOK_DIRECT_SCOPES = "user.info.basic,video.upload,video.publish"
 
 
 @dataclass
@@ -128,7 +131,7 @@ class TikTokConnector:
         base = (os.environ.get("PUBLIC_BASE_URL") or "").rstrip("/")
         return f"{base}/connect/tiktok/callback" if base else ""
 
-    def authorize_url(self) -> str:
+    def authorize_url(self, direct: bool = False) -> str:
         key = os.environ.get("TIKTOK_CLIENT_KEY")
         if not key:
             raise RuntimeError("Save the TikTok client key and secret first.")
@@ -139,7 +142,7 @@ class TikTokConnector:
         self._states = {s: t for s, t in self._states.items() if now - t < 900}
         self._states[state] = now
         return TIKTOK_AUTH_URL + "?" + urllib.parse.urlencode({
-            "client_key": key, "scope": TIKTOK_SCOPES, "response_type": "code",
+            "client_key": key, "scope": TIKTOK_DIRECT_SCOPES if direct else TIKTOK_SCOPES, "response_type": "code",
             "redirect_uri": self.redirect_uri(), "state": state})
 
     def finish(self, code: str, state: str) -> None:
