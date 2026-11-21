@@ -273,7 +273,7 @@ Things that work differently on a Mac:
   every time the Mac restarts or Docker restarts**, and the bot follows it by itself. TikTok only
   needs it once: put the current redirect address into TikTok's portal right before you press
   Connect TikTok (step 7.4). For TikTok's "URL properties / Verify" step, use the permanent
-  GitHub Pages address instead (step 7).
+  GitHub Pages address `https://lafferty767-lang.github.io/gta6-clipper/` instead.
 - If TikTok sends you back to a page that says "This site can't be reached", change the start of
   the address (`https://….trycloudflare.com`) to `http://localhost:8080`, keep the rest, and press
   Enter. A VPN can cause this; turn it off while connecting.
