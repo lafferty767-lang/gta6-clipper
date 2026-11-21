@@ -14,7 +14,7 @@ clip_without_permission: false
 
 poll_interval_seconds: 60        # how often to check who is live
 max_concurrent_streams: 4        # each stream uses ~3-6 Mbps download + some CPU
-stream_quality: "720p60,720p,best"   # 720p keeps bandwidth down; it's plenty for 1080x1920 shorts
+stream_quality: "1080p60,1080p,best"   # 1080p keeps the streamer's webcam sharp; "720p60,720p,best" uses ~half the bandwidth
 
 # Text that counts as "playing GTA 6" (matched against the stream's game/category and title)
 game_match: ["grand theft auto vi", "grand theft auto 6", "gta 6", "gta vi", "gta6", "gtavi"]
@@ -158,7 +158,7 @@ edit:
                                  # automatically, or a streamer's facecam box), else blur | split | blur
   captions: true
   credit_overlay: true           # shows "<streamer> live on twitch.tv/..." on the video
-  crf: 21
+  crf: 19
   preset: veryfast
 
 # ---------------------------------------------------------------------------------------

@@ -89,7 +89,7 @@ class Edit:
     credit_overlay: bool = True
     font_file: str = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
     font_name: str = "DejaVu Sans"
-    crf: int = 21
+    crf: int = 19
     preset: str = "veryfast"
     loudnorm: bool = True
 
@@ -109,7 +109,7 @@ class Config:
     clip_without_permission: bool = False
     data_dir: Path = Path("./data")
     poll_interval_seconds: int = 60
-    stream_quality: str = "720p60,720p,best"
+    stream_quality: str = "1080p60,1080p,best"
     game_match: list[str] = field(default_factory=lambda: list(DEFAULT_GAME_MATCH))
     discovery: dict[str, Any] = field(default_factory=lambda: {"enabled": True, "interval_minutes": 15, "languages": ["en"], "top": 25})
     detection: Detection = field(default_factory=Detection)
@@ -168,7 +168,7 @@ def load_config(path: str | os.PathLike | None = None) -> Config:
         clip_without_permission=bool(raw.get("clip_without_permission", False)),
         data_dir=Path(os.environ.get("CLIPPER_DATA_DIR", raw.get("data_dir", "./data"))),
         poll_interval_seconds=int(raw.get("poll_interval_seconds", 60)),
-        stream_quality=raw.get("stream_quality", "720p60,720p,best"),
+        stream_quality=raw.get("stream_quality", "1080p60,1080p,best"),
         game_match=[g.lower() for g in raw.get("game_match", DEFAULT_GAME_MATCH)],
         discovery={**Config.__dataclass_fields__["discovery"].default_factory(), **(raw.get("discovery") or {})},
         detection=det,

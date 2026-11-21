@@ -113,8 +113,11 @@ def render_vertical(raw: Path, offset: float, duration: float, out: Path, cfg: E
             x0 = max(cam_l - cw, 0)
         graph = (
             f"[0:v]crop=iw*{f.w:.4f}:ih*{f.h:.4f}:iw*{f.x:.4f}:ih*{f.y:.4f},"
-            f"scale={W}:{cam_h}:force_original_aspect_ratio=increase,crop={W}:{cam_h},setsar=1[cam];"
-            f"[0:v]crop={cw}:{sh}:{int(x0)}:0,scale={W}:{game_h},setsar=1[game];"
+            # webcams are small in the stream, so this is a big blow-up: smooth compression blocks first,
+            # scale with lanczos, then sharpen a little
+            f"hqdn3d=2:1.5:3:3,scale={W}:{cam_h}:force_original_aspect_ratio=increase:flags=lanczos,"
+            f"crop={W}:{cam_h},unsharp=5:5:1.0:5:5:0.0,eq=contrast=1.04:saturation=1.08,setsar=1[cam];"
+            f"[0:v]crop={cw}:{sh}:{int(x0)}:0,scale={W}:{game_h}:flags=lanczos,setsar=1[game];"
             f"[cam][game]vstack=inputs=2,fps=30[v0]")
         cap_y = cam_h                      # captions sit on the seam between streamer and gameplay
         credit_y = H - 110                 # bottom edge, out of the way of the gameplay
