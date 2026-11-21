@@ -20,14 +20,14 @@ class ChatSource(threading.Thread):
         super().__init__(daemon=True, name=f"{self.name_prefix}-{channel}")
         self.channel = channel
         self.on_message = on_message
-        self._stop = threading.Event()
+        self._halt = threading.Event()
 
     def stop(self) -> None:
-        self._stop.set()
+        self._halt.set()
 
     @property
     def stopped(self) -> bool:
-        return self._stop.is_set()
+        return self._halt.is_set()
 
     def run(self) -> None:
         backoff = 2.0

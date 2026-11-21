@@ -132,11 +132,11 @@ class StreamWorker(threading.Thread):
         self.facecam: Facecam | None = None    # webcam box found on this stream
         self._facecam_misses = 0
         self._facecam_thread: threading.Thread | None = None
-        self._stop = threading.Event()
+        self._halt = threading.Event()
 
     # --- lifecycle ----------------------------------------------------------------
     def stop(self) -> None:
-        self._stop.set()
+        self._halt.set()
 
     @property
     def done(self) -> bool:
@@ -160,7 +160,7 @@ class StreamWorker(threading.Thread):
         last_clip_poll = time.time()
         next_facecam = time.time() + 60
         try:
-            while not self._stop.is_set():
+            while not self._halt.is_set():
                 time.sleep(1)
                 now = time.time()
                 m = self.detector.tick(now)

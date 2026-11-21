@@ -328,3 +328,11 @@ def test_streamers_without_permission_are_not_recorded(tmp_path, monkeypatch):
     monkeypatch.setattr(orch, "_maybe_reload", lambda: None)
     orch.step()
     assert started == ["Kai Cenat"]
+
+
+def test_no_thread_hides_threading_internals():
+    # A worker stored its stop flag as self._stop, which hides threading.Thread's own _stop(): once the
+    # thread ended, is_alive() crashed with "'Event' object is not callable" and so did the Clips page.
+    import re
+    for f in (ROOT / "clipper").rglob("*.py"):
+        assert not re.search(r"self\._(stop|started|is_stopped|tstate_lock)\s*=", f.read_text()), f

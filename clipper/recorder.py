@@ -40,7 +40,7 @@ class Recorder(threading.Thread):
         self.segment_seconds = segment_seconds
         self.buffer_seconds = buffer_seconds
         self.on_segment = on_segment
-        self._stop = threading.Event()
+        self._halt = threading.Event()
         self._procs: list[subprocess.Popen] = []
         self._seen: set[str] = set()
         self.last_segment_at = time.time()
@@ -49,7 +49,7 @@ class Recorder(threading.Thread):
 
     # --- public -------------------------------------------------------------------
     def stop(self) -> None:
-        self._stop.set()
+        self._halt.set()
         for p in self._procs:
             if p.poll() is None:
                 p.terminate()
@@ -74,7 +74,7 @@ class Recorder(threading.Thread):
     def run(self) -> None:
         self._start_procs()
         try:
-            while not self._stop.is_set():
+            while not self._halt.is_set():
                 time.sleep(1)
                 self._scan()
                 if all(p.poll() is not None for p in self._procs):
