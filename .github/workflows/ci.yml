@@ -20,7 +20,7 @@ jobs:
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg
       - run: pip install -r requirements.txt pytest pyflakes shellcheck-py
       - run: pyflakes clipper tests
-      - run: shellcheck -S warning deploy/*.sh deploy/mac/*.sh
+      - run: shellcheck -S warning deploy/*.sh deploy/mac/*.sh deploy/mac/tunnel/*.sh
       - run: python -m pytest -q
 
   docker-amd64:
