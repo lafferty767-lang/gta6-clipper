@@ -33,6 +33,7 @@ class Streamer:
     platforms: dict[str, str]  # platform -> handle / login / slug
     permission: str = "unknown"  # granted | unknown | denied
     permission_note: str = ""
+    campaign_url: str = ""  # where to submit posted clips (paid clipping campaign)
     enabled: bool = True
     facecam: Facecam | None = None
     language: str | None = None  # whisper language hint, e.g. "en"
@@ -105,6 +106,7 @@ class Config:
     streamers: list[Streamer]
     review_mode: bool = True
     require_permission_to_upload: bool = True
+    clip_without_permission: bool = False
     data_dir: Path = Path("./data")
     poll_interval_seconds: int = 60
     stream_quality: str = "720p60,720p,best"
@@ -147,6 +149,7 @@ def load_config(path: str | os.PathLike | None = None) -> Config:
             platforms={k: str(v) for k, v in (s.get("platforms") or {}).items() if v},
             permission=str(s.get("permission", "unknown")).lower(),
             permission_note=s.get("permission_note", "") or "",
+            campaign_url=s.get("campaign_url", "") or "",
             enabled=bool(s.get("enabled", True)),
             facecam=Facecam(**fc) if fc else None,
             language=s.get("language"),
@@ -162,6 +165,7 @@ def load_config(path: str | os.PathLike | None = None) -> Config:
         streamers=streamers,
         review_mode=bool(raw.get("review_mode", True)),
         require_permission_to_upload=bool(raw.get("require_permission_to_upload", True)),
+        clip_without_permission=bool(raw.get("clip_without_permission", False)),
         data_dir=Path(os.environ.get("CLIPPER_DATA_DIR", raw.get("data_dir", "./data"))),
         poll_interval_seconds=int(raw.get("poll_interval_seconds", 60)),
         stream_quality=raw.get("stream_quality", "720p60,720p,best"),

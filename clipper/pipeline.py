@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import db as dbm
+from . import notify
 from .audio import loudness_series
 from .chat import make_chat_source
 from .config import Config, Facecam, Streamer
@@ -103,6 +104,8 @@ class ClipProcessor(threading.Thread):
                             llm_score=meta.llm_score, llm_reason=meta.llm_reason,
                             raw_path=str(job.raw) if job.keep_raw else None)
         log.info("clip %s ready [%s] score=%s: %s", job.clip_id, status, meta.llm_score, meta.title)
+        if status == dbm.READY and not job.keep_raw:
+            notify.clip_ready(self.db, self.db.get_clip(job.clip_id))
 
 
 class StreamWorker(threading.Thread):

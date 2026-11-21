@@ -117,7 +117,7 @@ def render_vertical(raw: Path, offset: float, duration: float, out: Path, cfg: E
             f"[0:v]crop={cw}:{sh}:{int(x0)}:0,scale={W}:{game_h},setsar=1[game];"
             f"[cam][game]vstack=inputs=2,fps=30[v0]")
         cap_y = cam_h                      # captions sit on the seam between streamer and gameplay
-        credit_y = H - 420                 # above TikTok/Shorts buttons and caption text
+        credit_y = H - 110                 # bottom edge, out of the way of the gameplay
     else:
         fg_h = BLUR_FG_HEIGHT
         graph = (
@@ -127,7 +127,7 @@ def render_vertical(raw: Path, offset: float, duration: float, out: Path, cfg: E
             f"[b]scale=-2:{fg_h},crop='min(iw,{W})':ih,setsar=1[fg];"
             f"[bg][fg]overlay=(W-w)/2:(H-h)/2,fps=30[v0]")
         cap_y = (H + fg_h) // 2 + 170
-        credit_y = (H - fg_h) // 2 - 90
+        credit_y = H - 110
 
     last = "v0"
     if cfg.captions and words:

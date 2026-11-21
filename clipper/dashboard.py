@@ -26,6 +26,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from starlette.concurrency import run_in_threadpool
 
 from . import db as dbm
+from . import notify
 from .config import load_config
 from .connect import TikTokConnector, YouTubeDeviceConnector
 from .doctor import FAIL, OFF, OK, WARN, run_checks
@@ -126,7 +127,8 @@ def create_app(orch) -> FastAPI:
     def same_origin(request: Request):
         """Blocks cross-site form posts (the browser would attach the saved login to them)."""
         origin = request.headers.get("origin") or request.headers.get("referer")
-        if origin and urlparse(origin).netloc != request.headers.get("host"):
+        ok_hosts = {request.headers.get("host"), urlparse(orch.public_base_url or "").netloc}
+        if origin and urlparse(origin).netloc not in ok_hosts:
             raise HTTPException(403, "cross-site request blocked")
 
     db: dbm.DB = orch.db
@@ -210,12 +212,15 @@ def create_app(orch) -> FastAPI:
 {f"<div class='meta bad'>{e(c.get('error'))}</div>" if c.get('error') else ''}
 {actions}</div>"""
 
-    def review_form(c: dict, note: str = "") -> str:
+    def review_form(c: dict, note: str = "", back: str = "/") -> str:
         return f"""<form method=post action="/clips/{c['id']}/approve">
-<label>Title</label><input name=title value="{e(c.get('title'))}" maxlength=100>
+<input type=hidden name=back value="{e(back)}"><label>Title</label><input name=title value="{e(c.get('title'))}" maxlength=100>
 <label>Description</label><textarea name=description>{e(c.get('description'))}</textarea>
 {note}<div class=row><button class=approve>Approve &amp; upload</button>
 <button class=reject formaction="/clips/{c['id']}/reject">Reject</button></div></form>"""
+
+    def safe_back(back: str) -> str:
+        return back if re.fullmatch(r"/(clip/\d+)?", back or "") else "/"
 
     @app.get("/", response_class=HTMLResponse, dependencies=[Depends(auth)])
     def index():
@@ -277,7 +282,7 @@ def create_app(orch) -> FastAPI:
         return FileResponse(c["final_path"], media_type="video/mp4")
 
     @app.post("/clips/{clip_id}/approve", dependencies=write)
-    def approve(clip_id: int, title: str = Form(...), description: str = Form("")):
+    def approve(clip_id: int, title: str = Form(...), description: str = Form(""), back: str = Form("/")):
         c = db.get_clip(clip_id)
         if not c:
             raise HTTPException(404)
@@ -286,12 +291,34 @@ def create_app(orch) -> FastAPI:
             db.update_clip(clip_id, title=title, description=description, status=dbm.NEEDS_PERMISSION)
             return HTMLResponse(f"<p>{e(c['streamer'])} has not granted permission (see Settings). Not uploading. <a href='/'>Back</a></p>", 403)
         db.update_clip(clip_id, title=title.strip(), description=description, status=dbm.APPROVED)
-        return RedirectResponse("/", 303)
+        return RedirectResponse(safe_back(back), 303)
 
     @app.post("/clips/{clip_id}/reject", dependencies=write)
-    def reject(clip_id: int):
+    def reject(clip_id: int, back: str = Form("/")):
         db.update_clip(clip_id, status=dbm.REJECTED)
-        return RedirectResponse("/", 303)
+        return RedirectResponse(safe_back(back), 303)
+
+    @app.get("/clip/{clip_id}", response_class=HTMLResponse, dependencies=[Depends(auth)])
+    def one_clip(clip_id: int):
+        """The page a phone notification opens: one clip, with Approve and Reject."""
+        c = db.get_clip(clip_id)
+        if not c:
+            raise HTTPException(404)
+        back = f"/clip/{clip_id}"
+        if c["status"] in (dbm.READY, dbm.LOW_SCORE):
+            actions = review_form(c, back=back)
+        else:
+            label = {dbm.APPROVED: "Approved: it uploads shortly.", dbm.UPLOADING: "Uploading now.",
+                     dbm.UPLOADED: "Posted.", dbm.REJECTED: "Rejected.", dbm.NEEDS_PERMISSION:
+                     "Blocked: this streamer isn't set to permission: granted."}.get(c["status"], c["status"])
+            s = orch.streamer_by_name(c["streamer"])
+            camp = (f" <a href='{e(s.campaign_url)}' target=_blank>Submit to the campaign</a>"
+                    if c["status"] == dbm.UPLOADED and s and s.campaign_url else "")
+            actions = f"<p class='meta ok'>{e(label)}{camp}</p>"
+        waiting = [x for x in db.list_clips([dbm.READY], 50) if x["id"] != clip_id]
+        nxt = (f"<p><a class=btn href='/clip/{waiting[-1]['id']}'>Next clip to review ({len(waiting)} left)</a></p>"
+               if waiting else "<p class=meta>Nothing else is waiting for review.</p>")
+        return page("/", f"<div class=grid>{clip_card(c, actions)}</div>{nxt}")
 
     @app.post("/clips/{clip_id}/retry", dependencies=write)
     def retry(clip_id: int):
@@ -368,12 +395,43 @@ def create_app(orch) -> FastAPI:
                  + "".join(f"<tr><td>{t}</td><td class=mono><a href='/{k}' target=_blank>{e(base)}/{k}</a></td></tr>"
                            for k, (t, _) in PUBLIC_PAGES.items())
                  + "</table></div>")
+        phone_url = notify.phone_link(db)
+        try:
+            import segno
+            qr = segno.make(phone_url, error="m").svg_inline(scale=4, dark="#000", light="#fff", border=3)
+        except Exception:  # noqa: BLE001
+            qr = ""
+        last = (db.kv_get("ntfy_address_last") or "").split(" ", 1)
+        board = ("<p class='meta ok'>Your Mac has posted its address for the phone link.</p>" if last[0] == "ok"
+                 else "<p class='meta warn'>Your Mac couldn't post its address yet (needs internet). The link works once it does.</p>"
+                 if last[0] == "failed" else "<p class=meta>Your Mac posts its address within a minute of starting.</p>")
+        phone = ("<div class=card><h3>Use it on your phone</h3>"
+                 "<p class=meta>Point your phone's camera at this code, or text yourself the link below. It opens this "
+                 "dashboard from anywhere, and keeps working when your Mac's internet address changes. Log in with "
+                 "your dashboard username and password. The first time, the link shows an Open dashboard button: before tapping it, "
+                 "use Share → <b>Add to Home Screen</b> so you get an app icon.</p>"
+                 f"<div style='background:#fff;display:inline-block;border-radius:8px'>{qr}</div>"
+                 f"<div class='card mono'><a href='{e(phone_url)}' target=_blank>{e(phone_url)}</a></div>{board}"
+                 "<p class=meta>Keep this link private: with it, someone could reach your login page. Your Mac must be on and awake.</p>"
+                 "<details><summary class=meta>Optional: a ping when a clip is ready</summary>"
+                 "<p class=meta>Install the free ntfy app, press +, and subscribe to:</p>"
+                 f"<div class='card mono'>{e(notify.topic(db))}</div>"
+                 "<form method=post action='/setup/notify-test'><div class=row><button class=reject>Send a test</button></div></form>"
+                 "</details></div>")
         body = (f"{banner}<h2>Status</h2><div class=card><table class=checks>{rows}</table>"
                 f"<p class=meta>Checked {_ago(at)} · <a href='/setup?refresh=1'>check again</a></p></div>"
                 "<h2>Connect your accounts</h2><p class=meta>Paste a value and press Save. Leave a box empty to keep what's saved. "
                 "Step-by-step help for each one is in SETUP.md.</p>"
-                f"<div class=grid>{''.join(forms)}{links}</div>")
+                f"<div class=grid>{phone}{''.join(forms)}{links}</div>")
         return page("/setup", body, refresh=5 if flow.status == "waiting" else None)
+
+    @app.post("/setup/notify-test", dependencies=write)
+    def notify_test():
+        link = notify.public_link("/")
+        ok = notify.send(db, "GTA 6 Clipper", "Notifications work. Tap to open your dashboard.",
+                         click=link, wait=True)
+        return go("/setup", msg="Test notification sent. Check your phone." if ok
+                  else "Couldn't send the notification (see the log). Check the internet connection.")
 
     @app.post("/setup/address", dependencies=write)
     def use_this_address(request: Request):

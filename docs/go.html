@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>GTA 6 Clipper</title>
+<meta name="apple-mobile-web-app-title" content="Clipper">
+<style>
+:root{color-scheme:dark}body{margin:0;background:#0e0f13;color:#e9eaf0;font:17px/1.5 system-ui,-apple-system,sans-serif;display:grid;place-items:center;min-height:100vh;padding:0 16px}
+main{max-width:420px;text-align:center}a{color:#ff4f8b}.meta{color:#9aa0b4;font-size:14px}
+</style></head>
+<body><main><h1>GTA 6 Clipper</h1><p id="msg">Finding your dashboard…</p><p class="meta" id="hint"></p></main>
+<script>
+// Opens the dashboard on the owner's computer. The computer posts its current address to a private
+// ntfy topic (named after the # in this link), because a home tunnel's address changes on restart.
+(async () => {
+  const msg = document.getElementById("msg"), hint = document.getElementById("hint");
+  const topic = location.hash.slice(1);
+  if (!/^gta6addr-[a-z0-9x]{8,}$/.test(topic)) {
+    msg.textContent = "This link is missing its code. Copy the phone link from the Setup page again.";
+    return;
+  }
+  try {
+    const r = await fetch("https://ntfy.sh/" + topic + "/json?poll=1&since=24h", {cache: "no-store"});
+    const lines = (await r.text()).trim().split("\n").filter(Boolean).map(l => JSON.parse(l));
+    const last = lines.filter(m => m.event === "message").pop();
+    const url = last && last.message.trim();
+    if (url && /^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)+\/?$/.test(url)) {
+      const dest = url.replace(/\/$/, "") + "/";
+      let seen = false;
+      try { seen = localStorage.getItem("seen") === "1"; localStorage.setItem("seen", "1"); } catch (e) {}
+      const app = navigator.standalone || matchMedia("(display-mode: standalone)").matches;
+      if (seen || app) {
+        msg.innerHTML = 'Opening <a href="' + dest + '">your dashboard</a>…';
+        location.replace(dest);
+      } else {
+        // First visit: give a chance to save THIS page (not the changing address it opens).
+        msg.innerHTML = '<a href="' + dest + '" style="display:inline-block;background:#ff4f8b;color:#fff;padding:12px 22px;border-radius:10px;text-decoration:none;font-weight:600">Open dashboard</a>';
+        hint.textContent = "Tip: save this page first. Tap Share, then Add to Home Screen. Next time it opens the dashboard straight away.";
+      }
+      return;
+    }
+    msg.textContent = "Your computer hasn't checked in today.";
+    hint.textContent = "Make sure the Mac is on, awake and connected to the internet, with Docker running, then try again in a minute.";
+  } catch (e) {
+    msg.textContent = "Couldn't reach the address board. Check your phone's internet and try again.";
+  }
+})();
+</script></body></html>

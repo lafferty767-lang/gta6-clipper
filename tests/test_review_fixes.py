@@ -116,9 +116,13 @@ def test_tunnel_address_becomes_public_address(monkeypatch):
 
     class Orch:
         reloads = 0
+        db = None
 
         def reload_integrations(self):
             Orch.reloads += 1
+
+    posted = []
+    monkeypatch.setattr(orchestrator.notify, "publish_address", lambda db, a: posted.append(a) or True)
 
     monkeypatch.setenv("PUBLIC_BASE_URL", "https://old.trycloudflare.com")
     monkeypatch.setattr(httpx, "get", lambda *a, **kw: FakeResp(200, {"hostname": "new-name.trycloudflare.com"}))
@@ -128,6 +132,7 @@ def test_tunnel_address_becomes_public_address(monkeypatch):
     import os
     assert os.environ["PUBLIC_BASE_URL"] == "https://new-name.trycloudflare.com"
     assert Orch.reloads == 1
+    assert posted == ["https://new-name.trycloudflare.com"]  # posted for the phone link once, not every check
 
     def down(*a, **kw):
         raise httpx.ConnectError("tunnel not up yet")
@@ -274,3 +279,52 @@ def test_split_layout_renders_streamer_on_top(tmp_path):
     out = render_vertical(src, 0.5, 2, tmp_path / "final.mp4", Edit(), Facecam(0.0, 0.4, 0.2, 0.28),
                           [Word(0.1, 0.5, "no"), Word(0.5, 0.9, "way")], "someone live on twitch.tv/someone")
     assert probe_size(out) == (1080, 1920)
+
+
+def _app(tmp_path, monkeypatch):
+    from clipper.dashboard import create_app
+    from clipper.orchestrator import Orchestrator
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "pw")
+    cfg = tmp_path / "config.yaml"
+    shutil.copy(ROOT / "config.example.yaml", cfg)
+    monkeypatch.setenv("CLIPPER_DATA_DIR", str(tmp_path / "data"))
+    orch = Orchestrator(str(cfg))
+    return orch, TestClient(create_app(orch))
+
+
+def test_phone_review_page_and_setup_link(tmp_path, monkeypatch):
+    orch, c = _app(tmp_path, monkeypatch)
+    a = orch.db.add_clip(streamer="Kai Cenat", platform="twitch", channel="kaicenat", status=dbm.READY, title="t1")
+    b = orch.db.add_clip(streamer="Kai Cenat", platform="twitch", channel="kaicenat", status=dbm.READY, title="t2")
+    page = c.get(f"/clip/{a}", auth=("admin", "pw")).text
+    assert "Approve" in page and f"/clip/{b}" in page and "1 left" in page
+    r = c.post(f"/clips/{a}/reject", data={"back": f"/clip/{a}"}, auth=("admin", "pw"), follow_redirects=False)
+    assert r.headers["location"] == f"/clip/{a}"
+    r = c.post(f"/clips/{b}/reject", data={"back": "https://evil.example/"}, auth=("admin", "pw"), follow_redirects=False)
+    assert r.headers["location"] == "/"
+    setup = c.get("/setup", auth=("admin", "pw")).text
+    assert "github.io/gta6-clipper/go.html#gta6addr-" in setup and "<svg" in setup
+
+
+def test_streamers_without_permission_are_not_recorded(tmp_path, monkeypatch):
+    from clipper.platforms.base import LiveInfo
+    orch, _ = _app(tmp_path, monkeypatch)
+    started = []
+    monkeypatch.setattr(orch, "discover", lambda: None)
+    monkeypatch.setattr(orch, "check_live", lambda: {
+        "Kai Cenat": LiveInfo(platform="twitch", channel="kaicenat", is_live=True, title="GTA 6", viewers=5, url="u"),
+        "CaseOh": LiveInfo(platform="twitch", channel="caseoh_", is_live=True, title="GTA 6", viewers=9, url="u")})
+    import clipper.orchestrator as o
+
+    class FakeWorker:
+        def __init__(self, cfg, db, s, info, *a):
+            self.name, self.info, self.done = s.name, info, False
+        def start(self):
+            started.append(self.name)
+    monkeypatch.setattr(o, "StreamWorker", FakeWorker)
+    for s in orch.cfg.streamers:
+        if s.name == "Kai Cenat":
+            s.permission = "granted"
+    monkeypatch.setattr(orch, "_maybe_reload", lambda: None)
+    orch.step()
+    assert started == ["Kai Cenat"]

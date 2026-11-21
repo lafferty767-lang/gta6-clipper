@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 from . import db as dbm
+from . import notify
 from .config import Config, Streamer, load_config
 from .pipeline import ClipProcessor, StreamWorker
 from .platforms.base import LiveInfo
@@ -69,6 +70,8 @@ class UploadManager(threading.Thread):
                 errors.append(f"{up.name}: {e}")
         status = dbm.UPLOADED if not errors else dbm.FAILED
         db.update_clip(clip["id"], status=status, uploads=results, error="; ".join(errors) or None)
+        if any(r.get("ok") and name != "local" for name, r in results.items()):
+            notify.clip_posted(db, db.get_clip(clip["id"]), streamer.campaign_url if streamer else None)
 
 
 class TunnelWatcher(threading.Thread):
@@ -76,9 +79,12 @@ class TunnelWatcher(threading.Thread):
     a new random *.trycloudflare.com name each time it starts. This asks the tunnel container for
     its current name and makes it the bot's public address (for Connect TikTok and Metricool)."""
 
+    REPOST = 3 * 3600   # the address board keeps messages ~12 hours; repost well before that
+
     def __init__(self, orch: "Orchestrator", url: str):
         super().__init__(daemon=True, name="tunnel")
         self.orch, self.url = orch, url
+        self.posted_at = 0.0
 
     def check(self) -> None:
         import httpx
@@ -90,10 +96,16 @@ class TunnelWatcher(threading.Thread):
         if not host:
             return
         address = f"https://{host}"
-        if address != os.environ.get("PUBLIC_BASE_URL"):
+        changed = address != os.environ.get("PUBLIC_BASE_URL")
+        if changed:
             os.environ["PUBLIC_BASE_URL"] = address
             self.orch.reload_integrations()
             log.info("public address is now %s", address)
+        if changed or time.time() - self.posted_at > self.REPOST:
+            if notify.publish_address(self.orch.db, address):
+                self.posted_at = time.time()
+            else:
+                self.posted_at = time.time() - self.REPOST + 300   # try again in 5 minutes
 
     def run(self) -> None:
         while True:
@@ -208,10 +220,12 @@ class Orchestrator:
             if w.done:
                 del self.workers[name]
         live = self.check_live()
+        if self.cfg.require_permission_to_upload and not self.cfg.clip_without_permission:
+            live = {n: i for n, i in live.items() if (s := self.streamer_by_name(n)) and s.upload_allowed}
         # stop workers whose streamer is no longer live on GTA 6 or was disabled
         for name, w in list(self.workers.items()):
             if name not in live:
-                log.info("%s is no longer live on GTA 6", name)
+                log.info("%s is no longer live on GTA 6 (or not allowed to clip)", name)
                 w.stop()
         # start new workers, biggest streams first, up to the concurrency limit
         for name, info in sorted(live.items(), key=lambda kv: -kv[1].viewers):
