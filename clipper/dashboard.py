@@ -194,8 +194,10 @@ def create_app(orch) -> FastAPI:
             f"{k}: " + (f"<a href='{e(v.get('url'))}' target=_blank>ok</a>" if v.get("ok") and v.get("url")
                         else ("ok" if v.get("ok") else f"<span class=bad>{e(str(v.get('error') or '')[:80])}</span>"))
             for k, v in ups.items() if isinstance(v, dict))
+        video = (f'<video controls preload=metadata src="/media/{c["id"]}"></video>' if c.get("final_path")
+                 else "<div class='meta warn'>No video: this clip broke before it was finished (reason below).</div>")
         return f"""<div class=card>
-<video controls preload=metadata src="/media/{c['id']}"></video>
+{video}
 <div class=meta>#{c['id']} · <b>{e(c['streamer'])}</b> on {e(c['platform'])} · {_ago(c.get('moment_at'))}
  · signal <span class=score>{e(c.get('score'))}</span>{' · AI <span class=score>' + e(c['llm_score']) + '/10</span>' if c.get('llm_score') is not None else ''}</div>
 <div class=meta>chat z {e(sig.get('chat_z'))} · hype z {e(sig.get('hype_z'))} · audio z {e(sig.get('audio_z'))} · viewer clips {e(sig.get('viewer_clips'))}</div>
@@ -239,7 +241,7 @@ def create_app(orch) -> FastAPI:
         def cards(rows, fn):
             return "<div class=grid>" + "".join(fn(c) for c in rows) + "</div>" if rows else "<p class=meta>None.</p>"
 
-        retry = lambda c: clip_card(c, f"<form method=post action='/clips/{c['id']}/retry'><div class=row><button class=retry>Retry upload</button></div></form>")  # noqa: E731
+        retry = lambda c: clip_card(c, f"<form method=post action='/clips/{c['id']}/retry'><div class=row><button class=retry>Retry upload</button></div></form>" if c.get("final_path") else "")  # noqa: E731
         perm_note = lambda c: review_form(c, f"<p class='meta warn'>{e(c['streamer'])} has not granted permission. Once they have, set <code>permission: granted</code> on the <a href='/settings'>Settings</a> page; until then approving is blocked.</p>")  # noqa: E731
         body = f"""<div class=row><span class=pill>review mode: {'ON' if cfg.review_mode else 'OFF (auto-upload)'}</span>
 <span class=pill>uploads to: {e(', '.join(st['uploaders']) or 'nothing set up yet, see Setup')}</span>

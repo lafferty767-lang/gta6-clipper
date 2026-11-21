@@ -193,3 +193,18 @@ def test_clips_page_handles_missing_titles_and_errors(tmp_path, monkeypatch):
                            "checks": {}, "review_mode": True, "uploaders": []}
     c = TestClient(create_app(orch))
     assert c.get("/", auth=("admin", "pw")).status_code == 200
+
+
+def test_clip_that_broke_before_rendering_has_no_player(tmp_path, monkeypatch):
+    from clipper.dashboard import create_app
+    from clipper.orchestrator import Orchestrator
+
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "pw")
+    cfg = tmp_path / "config.yaml"
+    shutil.copy(ROOT / "config.example.yaml", cfg)
+    monkeypatch.setenv("CLIPPER_DATA_DIR", str(tmp_path / "data"))
+    orch = Orchestrator(str(cfg))
+    orch.db.add_clip(streamer="a", platform="twitch", channel="a", status=dbm.FAILED, error="cut: ffmpeg said no")
+    html = TestClient(create_app(orch)).get("/", auth=("admin", "pw")).text
+    assert "No video" in html and "ffmpeg said no" in html
+    assert "<video" not in html and "Retry upload" not in html
