@@ -83,6 +83,34 @@ streamers:
     language: es
     enabled: false
 
+  # Paid GTA 6 clipping campaigns on Content Rewards (open as of 2026-11-20). Joining one is free and
+  # gives you permission; set permission: granted once you've joined. See STREAMERS.md.
+  - name: Lacy
+    platforms: {twitch: lacy}
+    permission: unknown
+    permission_note: "Reach campaign https://reachclipping.com/LACYGTA"
+    hashtags: [lacy]
+  - name: Clix
+    platforms: {twitch: clix}
+    permission: unknown
+    permission_note: "Reach campaign https://reachclipping.com/ClixGTA"
+    hashtags: [clix]
+  - name: YourRAGE
+    platforms: {twitch: yourragegaming}
+    permission: unknown
+    permission_note: "Reach GTA 6 pool on Content Rewards"
+    hashtags: [yourrage]
+  - name: AsianJeff
+    platforms: {twitch: asianjeff}
+    permission: unknown
+    permission_note: "Reach campaign on Content Rewards"
+    hashtags: [asianjeff]
+  - name: KreekCraft
+    platforms: {youtube: "@KreekCraft"}
+    permission: unknown
+    permission_note: "ClipLaunch GTA 6 campaign on Content Rewards; clips must show his stream overlay"
+    hashtags: [kreekcraft]
+
 # Twitch "discovery": lists the biggest GTA 6 streams in the dashboard so you can add them above.
 discovery:
   enabled: true

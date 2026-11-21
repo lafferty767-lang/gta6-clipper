@@ -32,6 +32,25 @@ Sources: [Streams Charts: top GTA creators of 2026](https://streamscharts.com/ne
 [WIN.gg: GTA 6 streaming records](https://win.gg/gta-6-smashes-streaming-records/),
 [Sportskeeda: Kai Cenat 100% marathon](https://sportskeeda.com/us/streamers/news-kai-cenat-hold-gta-6-100-playthrough-marathon-upon-game-s-release).
 
+## Streamers with paid GTA 6 clipping campaigns
+
+Checked 2026-11-20 on [Content Rewards](https://contentrewards.com/articles/gta-6-clipping) and
+[Clyper](https://www.clyper.io/clipping-programs). These are run by clipping agencies, joining is free
+with no application, and being in the campaign is your permission to post. Each one wants you to
+submit every post's link on Content Rewards (Reach: within 30 minutes of posting); the bot doesn't do that.
+
+| Streamer | Campaign | Pay | Notes |
+|---|---|---|---|
+| Kai Cenat | [$10,000 GTA 6 pool](https://contentrewards.com/c/campaigns/1d2bcb00-c904-415f-aa82-f95b96baad86) (Clipped & Shipped) | split by views, 750K-view minimum | 18+, ad disclosure |
+| Lacy | [$12,500 GTA VI marathon pool](https://contentrewards.com/c/campaigns/a5c63fad-cd53-4b81-9305-4a2d1696872a) (Reach) | split by views | name + #Lacy, no Kick casino streams |
+| Clix | [$5,000 GTA VI marathon pool](https://contentrewards.com/c/campaigns/985dc674-c75e-44fc-ac87-1b1506324389) (Reach) | split by views, 400K minimum | name + #Clix |
+| YourRAGE | [$5,000 GTA 6 pool](https://contentrewards.com/c/campaigns/be9b123e-ea47-4305-b6c5-af81f503b247) (Reach) | split by views, 500K minimum | |
+| AsianJeff | [clipping campaign](https://contentrewards.com/c/campaigns/bbd3a963-9a23-457c-bc15-6697971d9902) (Reach) | $1 per 1,000 views | |
+| KreekCraft | [GTA 6 clipping](https://contentrewards.com/c/campaigns/2eaa14fb-6927-4136-897e-b096e0d907d6) (ClipLaunch) | $1 per 1,000 views | his stream overlay must show |
+
+Pools pay only once your approved views pass the minimum. Campaigns close when budgets run out or
+marathons end, so re-check before relying on one.
+
 ## Permission (read this before turning uploads on)
 
 Reposting someone's stream on your own channel without permission is copyright infringement on
