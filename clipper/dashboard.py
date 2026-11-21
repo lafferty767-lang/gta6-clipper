@@ -355,7 +355,7 @@ def create_app(orch) -> FastAPI:
 
     @app.post("/setup/tiktok-verify", dependencies=write)
     async def tiktok_verify(file: UploadFile = File(...)):
-        name = Path(file.filename or "").name
+        name = re.sub(r" ?\(\d+\)(?=\.txt$)", "", Path(file.filename or "").name)  # "x (1).txt" from a re-download
         content = (await file.read(4097)).decode("utf-8", "replace").strip()
         if not VERIFY_FILE_RE.match(name) or not content or len(content) > 4096:
             return go("/setup", msg="That doesn't look like TikTok's verification file (a small .txt file).")
