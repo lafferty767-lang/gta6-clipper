@@ -27,6 +27,7 @@ from starlette.concurrency import run_in_threadpool
 
 from . import db as dbm
 from . import notify
+from . import viral
 from .config import load_config
 from .connect import TikTokConnector, YouTubeDeviceConnector
 from .doctor import FAIL, OFF, OK, WARN, run_checks
@@ -70,6 +71,7 @@ input,textarea{width:100%;background:#0f1117;color:var(--text);border:1px solid 
 textarea{min-height:90px}label{font-size:12px;color:var(--muted);display:block;margin:8px 0 4px}
 .row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}button{border:0;border-radius:8px;padding:9px 14px;font-weight:600;cursor:pointer}
 .approve{background:var(--ok);color:#06240f}.reject{background:var(--line);color:var(--text)}.retry{background:var(--warn);color:#2a1a00}
+.meter{margin:8px 0 2px}.bar{height:10px;border-radius:6px;background:var(--line);overflow:hidden;margin-top:4px}.bar span{display:block;height:100%}
 .meta{font-size:13px;color:var(--muted)}.score{font-weight:700;color:var(--accent)}.warn{color:var(--warn)}.bad{color:var(--bad)}
 table{width:100%;border-collapse:collapse;font-size:14px}td,th{padding:8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
 a{color:#8ab4ff}
@@ -193,6 +195,25 @@ def create_app(orch) -> FastAPI:
             f"<title>GTA 6 Clipper</title><style>{CSS}</style>{meta}</head><body>"
             f"<header><h1>GTA 6 Clipper</h1><nav>{nav}</nav><span class=meta>{e(REVISION)}</span></header><main>{body}</main></body></html>")
 
+    def recent_scores() -> list[float]:
+        return [float(x["score"] or 0) for x in db.list_clips(None, 300) if x.get("final_path")]
+
+    def meter_html(c: dict) -> str:
+        if "_meter" not in c or not c.get("final_path"):
+            return ""
+        m = c["_meter"]
+        words, cls = viral.label(m)
+        color = {"ok": "var(--ok)", "warn": "var(--warn)", "bad": "var(--bad)"}[cls]
+        return (f"<div class=meter title='Viral meter: an estimate from chat, hype, audio, viewer clips and talking'>"
+                f"<div class=row style='justify-content:space-between'><b>Viral meter</b><b class={cls}>{m}% · {words}</b></div>"
+                f"<div class=bar><span style='width:{m}%;background:{color}'></span></div></div>")
+
+    def with_meters(rows: list[dict], sort: bool = False) -> list[dict]:
+        pool = recent_scores()
+        for c in rows:
+            c["_meter"] = viral.score(c, pool)
+        return sorted(rows, key=lambda c: -c["_meter"]) if sort else rows
+
     def clip_card(c: dict, actions: str) -> str:
         sig = c.get("signals") or {}
         ups = c.get("uploads") or {}
@@ -204,6 +225,7 @@ def create_app(orch) -> FastAPI:
                  else "<div class='meta warn'>No video: this clip broke before it was finished (reason below).</div>")
         return f"""<div class=card>
 {video}
+{meter_html(c)}
 <div class=meta>#{c['id']} · <b>{e(c['streamer'])}</b> on {e(c['platform'])} · {_ago(c.get('moment_at'))}
  · signal <span class=score>{e(c.get('score'))}</span>{' · AI <span class=score>' + e(c['llm_score']) + '/10</span>' if c.get('llm_score') is not None else ''}</div>
 <div class=meta>chat z {e(sig.get('chat_z'))} · hype z {e(sig.get('hype_z'))} · audio z {e(sig.get('audio_z'))} · viewer clips {e(sig.get('viewer_clips'))}</div>
@@ -235,7 +257,8 @@ def create_app(orch) -> FastAPI:
             f"<td class={'ok' if s.permission == 'granted' else 'warn'}>{e(s.permission)}</td>"
             f"<td>{e(', '.join(f'{p}: ' + ('LIVE' if v['live'] else 'offline') + (' (GTA 6)' if v['live'] and v['gta6'] else '') for p, v in (st['checks'].get(s.name, {}).get('platforms') or {}).items()))}</td></tr>"
             for s in cfg.streamers)
-        ready = db.list_clips([dbm.READY], 50)
+        all_ready = with_meters(db.list_clips([dbm.READY], 500), sort=True)   # best first
+        ready = all_ready[:50]
         needs = db.list_clips([dbm.NEEDS_PERMISSION], 30)
         low = db.list_clips([dbm.LOW_SCORE], 12)
         failed = db.list_clips([dbm.FAILED], 12)
@@ -256,7 +279,7 @@ def create_app(orch) -> FastAPI:
 <span class=pill>uploads to: {e(', '.join(st['uploaders']) or 'nothing set up yet, see Setup')}</span>
 <span class=pill>max {cfg.uploads.max_per_day}/day</span></div>
 <h2>Live now</h2><div class=card><table><tr><th>Streamer</th><th>Platform</th><th>Title</th><th>Viewers</th><th>Since</th><th>Clips</th><th>Score now</th></tr>{live_rows}</table></div>
-<h2>Waiting for your review ({len(ready)})</h2>{cards(ready, lambda c: clip_card(c, review_form(c)))}
+<h2>Waiting for your review ({len(all_ready)}{', best 50 shown' if len(all_ready) > 50 else ''})</h2>{cards(ready, lambda c: clip_card(c, review_form(c)))}
 <h2>Blocked: no permission from streamer ({len(needs)})</h2>{cards(needs, lambda c: clip_card(c, perm_note(c)))}
 <h2>Uploaded / queued</h2>{cards(done, lambda c: clip_card(c, ''))}
 <h2>Failed</h2>{cards(failed, retry)}
@@ -315,8 +338,9 @@ def create_app(orch) -> FastAPI:
             camp = (f" <a href='{e(s.campaign_url)}' target=_blank>Submit to the campaign</a>"
                     if c["status"] == dbm.UPLOADED and s and s.campaign_url else "")
             actions = f"<p class='meta ok'>{e(label)}{camp}</p>"
-        waiting = [x for x in db.list_clips([dbm.READY], 50) if x["id"] != clip_id]
-        nxt = (f"<p><a class=btn href='/clip/{waiting[-1]['id']}'>Next clip to review ({len(waiting)} left)</a></p>"
+        c = with_meters([c])[0]
+        waiting = with_meters([x for x in db.list_clips([dbm.READY], 200) if x["id"] != clip_id], sort=True)
+        nxt = (f"<p><a class=btn href='/clip/{waiting[0]['id']}'>Next best clip ({waiting[0]['_meter']}%, {len(waiting)} left)</a></p>"
                if waiting else "<p class=meta>Nothing else is waiting for review.</p>")
         return page("/", f"<div class=grid>{clip_card(c, actions)}</div>{nxt}")
 

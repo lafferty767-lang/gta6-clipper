@@ -336,3 +336,14 @@ def test_no_thread_hides_threading_internals():
     import re
     for f in (ROOT / "clipper").rglob("*.py"):
         assert not re.search(r"self\._(stop|started|is_stopped|tstate_lock)\s*=", f.read_text()), f
+
+
+def test_viral_meter_ranks_big_shared_moments_first():
+    from clipper import viral
+    pool = [6, 6.5, 7, 7.5, 8, 9, 10, 12]
+    big = {"score": 12, "signals": {"chat_z": 6, "hype_z": 3, "audio_z": 5, "viewer_clips": 2}, "transcript": "x" * 200}
+    meh = {"score": 6.5, "signals": {"chat_z": 0.5, "hype_z": 0, "audio_z": 3, "viewer_clips": 0}, "transcript": ""}
+    assert viral.score(big, pool) >= 85 and viral.label(viral.score(big, pool))[0] == "Post it"
+    assert viral.score(meh, pool) < 50
+    assert 0 <= viral.score({"score": None, "signals": None}, []) <= 100
+    assert viral.score({**meh, "llm_score": 10}, pool) > viral.score(meh, pool)
