@@ -124,7 +124,7 @@ class YouTubeDeviceConnector:
 class TikTokConnector:
     def __init__(self, on_tokens):
         self.on_tokens = on_tokens
-        self._states: dict[str, float] = {}
+        self._states: dict[str, tuple[float, str]] = {}
 
     @staticmethod
     def redirect_uri() -> str:
@@ -139,20 +139,23 @@ class TikTokConnector:
             raise RuntimeError("PUBLIC_BASE_URL must be your server's https address (the installer sets it).")
         state = secrets.token_urlsafe(16)
         now = time.time()
-        self._states = {s: t for s, t in self._states.items() if now - t < 900}
-        self._states[state] = now
+        redirect = self.redirect_uri()
+        self._states = {s: v for s, v in self._states.items() if now - v[0] < 900}
+        # Remember the address TikTok was given: on a Mac the tunnel address can change before the
+        # browser comes back, and the token exchange must repeat the original one.
+        self._states[state] = (now, redirect)
         return TIKTOK_AUTH_URL + "?" + urllib.parse.urlencode({
             "client_key": key, "scope": TIKTOK_DIRECT_SCOPES if direct else TIKTOK_SCOPES, "response_type": "code",
-            "redirect_uri": self.redirect_uri(), "state": state})
+            "redirect_uri": redirect, "state": state})
 
     def finish(self, code: str, state: str) -> None:
         if state not in self._states:
             raise RuntimeError("This TikTok login link expired or didn't come from this dashboard. Start again.")
-        self._states.pop(state, None)
+        _, redirect = self._states.pop(state)
         try:
             r = httpx.post(TIKTOK_TOKEN_URL, data={
                 "client_key": os.environ.get("TIKTOK_CLIENT_KEY", ""), "client_secret": os.environ.get("TIKTOK_CLIENT_SECRET", ""),
-                "code": code, "grant_type": "authorization_code", "redirect_uri": self.redirect_uri()},
+                "code": code, "grant_type": "authorization_code", "redirect_uri": redirect},
                 headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=30)
             j = r.json()
         except (httpx.HTTPError, ValueError) as e:

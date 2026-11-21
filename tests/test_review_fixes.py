@@ -134,3 +134,24 @@ def test_tunnel_address_becomes_public_address(monkeypatch):
     monkeypatch.setattr(httpx, "get", down)
     w.check()  # no crash, address kept
     assert os.environ["PUBLIC_BASE_URL"] == "https://new-name.trycloudflare.com"
+
+
+def test_tiktok_login_survives_tunnel_address_change(monkeypatch):
+    from clipper import connect
+    monkeypatch.setenv("TIKTOK_CLIENT_KEY", "k")
+    monkeypatch.setenv("TIKTOK_CLIENT_SECRET", "s")
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://first.trycloudflare.com")
+    got = {}
+    c = connect.TikTokConnector(lambda tokens: got.update(tokens))
+    url = c.authorize_url()
+    state = dict(x.split("=", 1) for x in url.split("?", 1)[1].split("&"))["state"]
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://second.trycloudflare.com")
+    sent = {}
+
+    def post(url, data=None, **kw):
+        sent.update(data)
+        return FakeResp(200, {"refresh_token": "r", "access_token": "a"})
+    monkeypatch.setattr(connect.httpx, "post", post)
+    c.finish("code", state)
+    assert sent["redirect_uri"] == "https://first.trycloudflare.com/connect/tiktok/callback"
+    assert got["refresh_token"] == "r"

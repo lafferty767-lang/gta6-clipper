@@ -272,8 +272,11 @@ Things that work differently on a Mac:
   `https://some-words.trycloudflare.com`, shown in the TikTok box on the Setup page. It **changes
   every time the Mac restarts or Docker restarts**, and the bot follows it by itself. TikTok only
   needs it once: put the current redirect address into TikTok's portal right before you press
-  Connect TikTok (step 7.4). Skip TikTok's "URL properties / Verify" step; the bot uploads files
-  directly, so it isn't needed.
+  Connect TikTok (step 7.4). For TikTok's "URL properties / Verify" step, use the permanent
+  GitHub Pages address instead (step 7).
+- If TikTok sends you back to a page that says "This site can't be reached", change the start of
+  the address (`https://….trycloudflare.com`) to `http://localhost:8080`, keep the rest, and press
+  Enter. A VPN can cause this; turn it off while connecting.
 - To update, paste the same command again. Your keys, settings and clips are kept.
 - To stop it: `cd ~/GTA6-Clipper && docker compose -f docker-compose.yml -f docker-compose.mac.yml stop`.
 - Docker Desktop uses part of your Mac's memory. With 8 GB of memory, watch one or two streamers at a time.
