@@ -48,6 +48,10 @@ def _ago(ts: float | None) -> str:
     return f"{d // 86400}d ago"
 
 
+_rev_file = Path(__file__).with_name("REVISION")
+REVISION = ("version " + _rev_file.read_text().strip()) if _rev_file.exists() else ""
+
+
 def e(x) -> str:
     return html.escape(str(x if x is not None else ""))
 
@@ -185,7 +189,7 @@ def create_app(orch) -> FastAPI:
         return HTMLResponse(
             "<!doctype html><html><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
             f"<title>GTA 6 Clipper</title><style>{CSS}</style>{meta}</head><body>"
-            f"<header><h1>GTA 6 Clipper</h1><nav>{nav}</nav></header><main>{body}</main></body></html>")
+            f"<header><h1>GTA 6 Clipper</h1><nav>{nav}</nav><span class=meta>{e(REVISION)}</span></header><main>{body}</main></body></html>")
 
     def clip_card(c: dict, actions: str) -> str:
         sig = c.get("signals") or {}

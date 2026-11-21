@@ -8,3 +8,4 @@ __pycache__/
 *.mp4
 *.ts
 .pytest_cache/
+clipper/REVISION

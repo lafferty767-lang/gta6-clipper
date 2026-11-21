@@ -55,10 +55,16 @@ info "Docker is running"
 say "Downloading the bot to $APP_DIR"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-curl -fsSL "https://codeload.github.com/$REPO/tar.gz/refs/heads/$BRANCH" | tar -xz -C "$tmp" \
+# Ask GitHub for the newest commit and download exactly that: the branch download can be a few
+# minutes stale right after a fix is pushed.
+rev=$(curl -fsSL -H "Accept: application/vnd.github.sha" "https://api.github.com/repos/$REPO/commits/$BRANCH" 2>/dev/null || true)
+[[ "$rev" =~ ^[0-9a-f]{40}$ ]] || rev=""
+curl -fsSL "https://codeload.github.com/$REPO/tar.gz/${rev:-refs/heads/$BRANCH}" | tar -xz -C "$tmp" \
   || die "Couldn't download the bot from github.com/$REPO. Check your internet connection."
 mkdir -p "$APP_DIR"
 cp -R "$tmp"/*/. "$APP_DIR/"
+[ -z "$rev" ] || printf '%s\n' "${rev:0:7}" > "$APP_DIR/clipper/REVISION"
+info "Version ${rev:0:7}"
 cd "$APP_DIR"
 mkdir -p data
 [ -f config.yaml ] || cp config.example.yaml config.yaml
