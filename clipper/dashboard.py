@@ -80,6 +80,30 @@ nav{display:flex;gap:14px;margin-left:auto}nav a{color:var(--text);text-decorati
 .code{font:700 28px/1.2 ui-monospace,monospace;letter-spacing:.12em;background:#0f1117;padding:10px 16px;border-radius:10px;display:inline-block;margin:6px 0}
 .mono{font-family:ui-monospace,monospace;font-size:13px;word-break:break-all}textarea.cfg{min-height:70vh;font:13px/1.45 ui-monospace,monospace}
 .ok{color:var(--ok)}.btn{display:inline-block;background:var(--accent);color:#fff;border-radius:8px;padding:9px 14px;font-weight:600;text-decoration:none}
+.btn.go{background:var(--ok);color:#06240f}.btn.plain{background:var(--line);color:var(--text)}button.plain{background:var(--line);color:var(--text)}
+.tbl{overflow-x:auto}.title{font-weight:600;margin:2px 0 4px}.list{display:grid;gap:10px}
+details.fold{background:var(--card);border:1px solid var(--line);border-radius:12px;margin:12px 0}
+details.fold>summary{padding:13px 14px;cursor:pointer;font-weight:600;list-style:none}
+details.fold>summary::-webkit-details-marker{display:none}details.fold>summary:after{content:"\\25B8";float:right;color:var(--muted)}
+details.fold[open]>summary:after{content:"\\25BE"}details.fold>.in{padding:0 14px 14px}
+details.more summary{font-size:13px;color:var(--muted);cursor:pointer;margin-top:6px}
+.count{color:var(--muted);font-weight:400}.done{color:var(--ok);font-size:13px}
+@media(max-width:640px){
+header{padding:10px 12px;gap:8px}header h1{font-size:16px}header>.meta{display:none}
+nav{margin-left:0;gap:6px;width:100%}nav a{flex:1;text-align:center;background:var(--card)}
+main{padding:12px}.grid{grid-template-columns:1fr;gap:12px}video{max-height:62vh}
+.row button,.row .btn{flex:1;text-align:center;padding:12px 14px;font-size:16px}
+input,textarea{font-size:16px}h2{margin:20px 0 10px}td,th{padding:6px;font-size:13px}
+}
+"""
+
+JS = """
+function copyText(t){var done=false;try{if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(t);done=true}}catch(e){}
+if(!done){var a=document.createElement('textarea');a.value=t;a.setAttribute('readonly','');a.style.position='fixed';a.style.opacity='0';
+document.body.appendChild(a);a.select();try{document.execCommand('copy')}catch(e){}a.remove()}}
+function submitClip(el){copyText(el.dataset.copy);fetch('/clips/'+el.dataset.id+'/submitted',{method:'POST'});
+el.textContent='Link copied. Paste it on the campaign page';return true}
+function copyBtn(el){copyText(el.dataset.copy);el.textContent='Copied';return false}
 """
 
 
@@ -192,7 +216,7 @@ def create_app(orch) -> FastAPI:
         meta = f"<meta http-equiv=refresh content='{refresh};url={active}'>" if refresh else ""
         return HTMLResponse(
             "<!doctype html><html><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
-            f"<title>GTA 6 Clipper</title><style>{CSS}</style>{meta}</head><body>"
+            f"<title>GTA 6 Clipper</title><style>{CSS}</style><script>{JS}</script>{meta}</head><body>"
             f"<header><h1>GTA 6 Clipper</h1><nav>{nav}</nav><span class=meta>{e(REVISION)}</span></header><main>{body}</main></body></html>")
 
     def recent_scores() -> list[float]:
@@ -231,35 +255,82 @@ def create_app(orch) -> FastAPI:
         video = (f'<video controls preload=metadata src="/media/{c["id"]}"></video>' if c.get("final_path")
                  else "<div class='meta warn'>No video: this clip broke before it was finished (reason below).</div>")
         cap = ""
-        if c.get("status") in (dbm.APPROVED, dbm.UPLOADING, dbm.UPLOADED) and any(u.name == "tiktok" for u in (getattr(orch, "uploaders", None) or [])):
+        if c.get("status") in (dbm.APPROVED, dbm.UPLOADING, dbm.UPLOADED) and has_tiktok():
             cap = (f"<label>TikTok caption (paste it when you post the draft)</label>"
-                   f"<textarea readonly rows=3 id=cap{c['id']} onclick='this.select()'>{e(tiktok_caption(c))}</textarea>"
-                   f"<div class=row><button type=button onclick=\"var t=document.getElementById('cap{c['id']}');t.select();"
-                   f"(navigator.clipboard?navigator.clipboard.writeText(t.value):Promise.reject()).then(()=>{{this.textContent='Copied'}},()=>{{document.execCommand('copy');this.textContent='Copied'}})\">"
-                   f"Copy TikTok caption</button></div>")
+                   f"<textarea readonly rows=3 onclick='this.select()'>{e(tiktok_caption(c))}</textarea>"
+                   f"<div class=row><button type=button class=plain data-copy=\"{e(tiktok_caption(c))}\" "
+                   f"onclick='return copyBtn(this)'>Copy TikTok caption</button></div>")
+        ai = f" · AI <span class=score>{e(c['llm_score'])}/10</span>" if c.get("llm_score") is not None else ""
         return f"""<div class=card>
 {video}
 {meter_html(c)}
-<div class=meta>#{c['id']} · <b>{e(c['streamer'])}</b> on {e(c['platform'])} · {_ago(c.get('moment_at'))}
- · signal <span class=score>{e(c.get('score'))}</span>{' · AI <span class=score>' + e(c['llm_score']) + '/10</span>' if c.get('llm_score') is not None else ''}</div>
-<div class=meta>chat z {e(sig.get('chat_z'))} · hype z {e(sig.get('hype_z'))} · audio z {e(sig.get('audio_z'))} · viewer clips {e(sig.get('viewer_clips'))}</div>
+<div class=title>{e(c.get('title') or '')}</div>
+<div class=meta><b>{e(c['streamer'])}</b> · {_ago(c.get('moment_at'))}{ai}</div>
 {f"<div class=meta>{e(c.get('llm_reason'))}</div>" if c.get('llm_reason') else ''}
 {f"<div class=meta>{up_txt}</div>" if up_txt else ''}
 {f"<div class='meta bad'>{e(c.get('error'))}</div>" if c.get('error') else ''}
+<details class=more><summary>Details</summary><div class=meta>#{c['id']} on {e(c['platform'])} · signal {e(c.get('score'))} ·
+ chat z {e(sig.get('chat_z'))} · hype z {e(sig.get('hype_z'))} · audio z {e(sig.get('audio_z'))} · viewer clips {e(sig.get('viewer_clips'))}</div></details>
 {cap}{actions}</div>"""
+
+    def has_tiktok() -> bool:
+        return any(u.name == "tiktok" for u in (getattr(orch, "uploaders", None) or []))
+
+    def youtube_url(c: dict) -> str | None:
+        v = (c.get("uploads") or {}).get("youtube") or {}
+        return v.get("url") if v.get("ok") else None
+
+    def submitted(c: dict) -> bool:
+        return bool(db.kv_get(f"campaign_submitted_{c['id']}"))
+
+    def submit_html(c: dict) -> str:
+        """One tap: copies the post's link and opens that streamer's campaign page to paste it into."""
+        s = orch.streamer_by_name(c["streamer"])
+        url = youtube_url(c)
+        if not url:
+            return ""
+        note = "<div class=done>Submitted ✓ (tap again if you need to)</div>" if submitted(c) else ""
+        if s and s.campaign_url:
+            return (f"<div class=row><a class='btn go' href='{e(s.campaign_url)}' target=_blank rel=noopener "
+                    f"data-copy='{e(url)}' data-id={c['id']} onclick='return submitClip(this)'>"
+                    f"Copy link &amp; open {e(c['streamer'])} campaign</a></div>{note}")
+        return (f"<div class=row><button type=button class=plain data-copy='{e(url)}' onclick='return copyBtn(this)'>"
+                f"Copy YouTube link</button></div>")
+
+    def posted_card(c: dict) -> str:
+        """A posted clip without the video: links, the campaign button and the TikTok caption."""
+        cap = (f"<div class=row><button type=button class=plain data-copy=\"{e(tiktok_caption(c))}\" "
+               f"onclick='return copyBtn(this)'>Copy TikTok caption</button></div>") if has_tiktok() else ""
+        yt = youtube_url(c)
+        return f"""<div class=card><div class=title>{e(c.get('title') or '')}</div>
+<div class=meta><b>{e(c['streamer'])}</b> · posted {_ago(max([v.get('at') or 0 for v in (c.get('uploads') or {}).values() if isinstance(v, dict)] or [0]) or None)}
+{f" · <a href='{e(yt)}' target=_blank>YouTube</a>" if yt else ''} · <a href='/clip/{c['id']}'>open</a></div>
+{submit_html(c)}{cap}</div>"""
+
+    def queued_card(c: dict) -> str:
+        ai = f" · AI {e(c['llm_score'])}/10" if c.get("llm_score") is not None else ""
+        label = "uploading now" if c["status"] == dbm.UPLOADING else "waiting its turn"
+        stop = (f"<form method=post action='/clips/{c['id']}/reject'><div class=row>"
+                f"<button class=plain>Don't post this one</button></div></form>") if c["status"] == dbm.APPROVED else ""
+        return f"""<div class=card><div class=title>{e(c.get('title') or '')}</div>
+<div class=meta><b>{e(c['streamer'])}</b> · {label}{ai} · <a href='/clip/{c['id']}'>watch</a></div>{stop}</div>"""
+
+    def fold(title: str, count: int | None, inner: str, open_: bool = False) -> str:
+        n = f" <span class=count>({count})</span>" if count is not None else ""
+        return f"<details class=fold{' open' if open_ else ''}><summary>{title}{n}</summary><div class=in>{inner}</div></details>"
 
     def review_form(c: dict, note: str = "", back: str = "/") -> str:
         return f"""<form method=post action="/clips/{c['id']}/approve">
 <input type=hidden name=back value="{e(back)}"><label>Title</label><input name=title value="{e(clean.safe_title(c.get('title') or '', c['streamer']))}" maxlength=100>
-<label>Description</label><textarea name=description>{e(clean.scrub(c.get('description') or ''))}</textarea>
-{note}<div class=row><button class=approve>Approve &amp; upload</button>
+<details class=more><summary>Edit description</summary><textarea name=description>{e(clean.scrub(c.get('description') or ''))}</textarea></details>
+{note}<div class=row><button class=approve>Approve</button>
 <button class=reject formaction="/clips/{c['id']}/reject">Reject</button></div></form>"""
 
     def safe_back(back: str) -> str:
         return back if re.fullmatch(r"/(clip/\d+)?", back or "") else "/"
 
     @app.get("/", response_class=HTMLResponse, dependencies=[Depends(auth)])
-    def index():
+    def index(more: int = 0):
         st = orch.status()
         cfg = orch.cfg
         live_rows = "".join(
@@ -272,11 +343,16 @@ def create_app(orch) -> FastAPI:
             f"<td>{e(', '.join(f'{p}: ' + ('LIVE' if v['live'] else 'offline') + (' (GTA 6)' if v['live'] and v['gta6'] else '') for p, v in (st['checks'].get(s.name, {}).get('platforms') or {}).items()))}</td></tr>"
             for s in cfg.streamers)
         all_ready = with_meters(db.list_clips([dbm.READY], 500), sort=True)   # best first
-        ready = all_ready[:50]
+        shown = 30 if more else 6
+        ready = all_ready[:shown]
         needs = db.list_clips([dbm.NEEDS_PERMISSION], 30)
         low = db.list_clips([dbm.LOW_SCORE], 12)
         failed = db.list_clips([dbm.FAILED], 12)
-        done = db.list_clips([dbm.UPLOADED, dbm.UPLOADING, dbm.APPROVED], 24)
+        queued = db.list_clips([dbm.UPLOADING, dbm.APPROVED], 20)
+        posted = db.list_clips([dbm.UPLOADED], 30)
+        week = time.time() - 7 * 86400
+        to_submit = [c for c in posted if youtube_url(c) and not submitted(c) and (c.get("created_at") or 0) > week
+                     and (lambda s: s and s.campaign_url)(orch.streamer_by_name(c["streamer"]))]
         disc = db.list_discovered(6)
         listed = {h.lower() for s in cfg.streamers for h in s.platforms.values()}
         disc_rows = "".join(
@@ -284,24 +360,34 @@ def create_app(orch) -> FastAPI:
             f"<td>{e(d['viewers'])}</td><td>{e(d['language'])}</td><td>{e((d['title'] or '')[:90])}</td><td>{_ago(d['last_seen'])}</td></tr>"
             for d in disc) or "<tr><td colspan=5 class=meta>Needs Twitch API keys.</td></tr>"
 
-        def cards(rows, fn):
-            return "<div class=grid>" + "".join(fn(c) for c in rows) + "</div>" if rows else "<p class=meta>None.</p>"
+        def cards(rows, fn, empty="None."):
+            return "<div class=grid>" + "".join(fn(c) for c in rows) + "</div>" if rows else f"<p class=meta>{empty}</p>"
 
         retry = lambda c: clip_card(c, f"<form method=post action='/clips/{c['id']}/retry'><div class=row><button class=retry>Retry upload</button></div></form>" if c.get("final_path") else "")  # noqa: E731
         perm_note = lambda c: review_form(c, f"<p class='meta warn'>{e(c['streamer'])} has not granted permission. Once they have, set <code>permission: granted</code> on the <a href='/settings'>Settings</a> page; until then approving is blocked.</p>")  # noqa: E731
-        body = f"""<div class=row><span class=pill>review mode: {'ON' if cfg.review_mode else 'OFF (auto-upload)'}</span>
-<span class=pill>uploads to: {e(', '.join(st['uploaders']) or 'nothing set up yet, see Setup')}</span>
-<span class=pill>max {cfg.uploads.max_per_day}/day</span></div>
-<h2>Live now</h2><div class=card><table><tr><th>Streamer</th><th>Platform</th><th>Title</th><th>Viewers</th><th>Since</th><th>Clips</th><th>Score now</th></tr>{live_rows}</table></div>
-<h2>Waiting for your review ({len(all_ready)}{', best 50 shown' if len(all_ready) > 50 else ''})</h2>{cards(ready, lambda c: clip_card(c, review_form(c)))}
-<h2>Blocked: no permission from streamer ({len(needs)})</h2>{cards(needs, lambda c: clip_card(c, perm_note(c)))}
-<h2>Uploaded / queued</h2>{cards(done, lambda c: clip_card(c, ''))}
-<h2>Failed</h2>{cards(failed, retry)}
-<h2>AI said skip (low score)</h2>{cards(low, lambda c: clip_card(c, review_form(c)))}
-<h2>Your streamer list</h2><div class=card><table><tr><th>Name</th><th>Enabled</th><th>Permission</th><th>Last check</th></tr>{check_rows}</table></div>
-<h2>Other big GTA 6 streams on Twitch right now</h2><div class=card><table><tr><th>Channel</th><th>Viewers</th><th>Lang</th><th>Title</th><th>Seen</th></tr>{disc_rows}</table></div>
+        live_names = ", ".join(w["streamer"] for w in st["workers"]) or "nobody on your list"
+        more_link = (f"<p><a class='btn plain' href='/?more=1'>Show more ({len(all_ready) - shown} more)</a></p>"
+                     if len(all_ready) > shown else "")
+        submit_part = (f"<h2>Submit to campaigns ({len(to_submit)})</h2><div class=list>{''.join(posted_card(c) for c in to_submit)}</div>"
+                       if to_submit else "")
+        body = f"""<div class=meta>Live now: {e(live_names)} · uploads to {e(', '.join(st['uploaders']) or 'nothing yet, see Setup')} · max {cfg.uploads.max_per_day}/day{'' if cfg.review_mode else ' · auto-upload ON'}</div>
+{submit_part}
+<h2>Review: best first ({len(all_ready)})</h2>{cards(ready, lambda c: clip_card(c, review_form(c)), "Nothing waiting. New clips show up here.")}{more_link}
+<h2>Up next to post ({len(queued)})</h2>{f"<div class=list>{''.join(queued_card(c) for c in queued)}</div>" if queued else "<p class=meta>Nothing approved right now.</p>"}
+{fold("Posted", len(posted), f"<div class=list>{''.join(posted_card(c) for c in posted)}</div>" if posted else "<p class=meta>None yet.</p>")}
+{fold("Failed", len(failed), cards(failed, retry)) if failed else ''}
+{fold("Blocked: no permission from streamer", len(needs), cards(needs, lambda c: clip_card(c, perm_note(c)))) if needs else ''}
+{fold("AI said skip", len(low), cards(low, lambda c: clip_card(c, review_form(c)))) if low else ''}
+{fold("Live now", len(st['workers']), f"<div class=tbl><table><tr><th>Streamer</th><th>Platform</th><th>Title</th><th>Viewers</th><th>Since</th><th>Clips</th><th>Score now</th></tr>{live_rows}</table></div>")}
+{fold("Your streamer list", len(cfg.streamers), f"<div class=tbl><table><tr><th>Name</th><th>Enabled</th><th>Permission</th><th>Last check</th></tr>{check_rows}</table></div>")}
+{fold("Other big GTA 6 streams on Twitch", None, f"<div class=tbl><table><tr><th>Channel</th><th>Viewers</th><th>Lang</th><th>Title</th><th>Seen</th></tr>{disc_rows}</table></div>")}
 """
-        return page("/", body, refresh=120)
+        return page("/", body)
+
+    @app.post("/clips/{clip_id}/submitted", dependencies=write)
+    def mark_submitted(clip_id: int):
+        db.kv_set(f"campaign_submitted_{clip_id}", str(time.time()))
+        return {"ok": True}
 
     @app.get("/media/{clip_id}", dependencies=[Depends(auth)])
     def media(clip_id: int):
@@ -348,10 +434,7 @@ def create_app(orch) -> FastAPI:
             label = {dbm.APPROVED: "Approved: it uploads shortly.", dbm.UPLOADING: "Uploading now.",
                      dbm.UPLOADED: "Posted.", dbm.REJECTED: "Rejected.", dbm.NEEDS_PERMISSION:
                      "Blocked: this streamer isn't set to permission: granted."}.get(c["status"], c["status"])
-            s = orch.streamer_by_name(c["streamer"])
-            camp = (f" <a href='{e(s.campaign_url)}' target=_blank>Submit to the campaign</a>"
-                    if c["status"] == dbm.UPLOADED and s and s.campaign_url else "")
-            actions = f"<p class='meta ok'>{e(label)}{camp}</p>"
+            actions = f"<p class='meta ok'>{e(label)}</p>" + (submit_html(c) if c["status"] == dbm.UPLOADED else "")
         c = with_meters([c])[0]
         waiting = with_meters([x for x in db.list_clips([dbm.READY], 200) if x["id"] != clip_id], sort=True)
         nxt = (f"<p><a class=btn href='/clip/{waiting[0]['id']}'>Next best clip ({waiting[0]['_meter']}%, {len(waiting)} left)</a></p>"

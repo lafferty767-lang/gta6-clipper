@@ -484,3 +484,21 @@ def test_caption_position_found_for_blur_layout(tmp_path):
                     "-pix_fmt", "yuv420p", str(src)], check=True)
     out = render_vertical(src, 0, 3, tmp_path / "final.mp4", Edit(), None, [], None)
     assert recaption.caption_y(out, 3, Edit()) == (1920 + BLUR_FG_HEIGHT) // 2 + 170
+
+
+def test_campaign_button_copies_the_link_and_remembers_submission(tmp_path, monkeypatch):
+    import types
+    orch, c = _app(tmp_path, monkeypatch)
+    orch.uploaders = [types.SimpleNamespace(name="youtube"), types.SimpleNamespace(name="tiktok")]
+    a = orch.db.add_clip(streamer="Lacy", platform="twitch", channel="lacy", status=dbm.UPLOADED, title="Lacy clip",
+                         uploads={"youtube": {"ok": True, "at": time.time(), "url": "https://youtube.com/shorts/abc"}})
+    for i in range(9):
+        orch.db.add_clip(streamer="Lacy", platform="twitch", channel="lacy", status=dbm.READY, title=f"r{i}")
+    home = c.get("/", auth=("admin", "pw")).text
+    assert "Submit to campaigns (1)" in home and "data-copy='https://youtube.com/shorts/abc'" in home
+    assert "contentrewards.com" in home and "Show more (3 more)" in home
+    r = c.post(f"/clips/{a}/submitted", auth=("admin", "pw"), headers={"origin": "http://testserver"})
+    assert r.status_code == 200
+    home = c.get("/", auth=("admin", "pw")).text
+    assert "Submit to campaigns" not in home and "Submitted ✓" in home
+    assert c.post(f"/clips/{a}/submitted", auth=("admin", "pw"), headers={"origin": "https://evil.example"}).status_code == 403
