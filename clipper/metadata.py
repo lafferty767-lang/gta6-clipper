@@ -75,7 +75,7 @@ def _finalize(streamer: Streamer, platform: str, channel: str, title: str, desc:
 
 def template_meta(streamer: Streamer, platform: str, channel: str, transcript: str) -> ClipMeta:
     hook = clean.clean_hook(transcript)
-    title = f"{streamer.name} in GTA 6: \"{hook}\" 💀" if hook else f"{streamer.name} lost it in GTA 6 💀"
+    title = f"{streamer.name} in GTA 6: \"{hook}\" 💀" if hook else clean.fallback_title(streamer.name, transcript)
     t, d, h = _finalize(streamer, platform, channel, title, f"{streamer.name} playing GTA 6 live.", [])
     return ClipMeta(t, d, h)
 

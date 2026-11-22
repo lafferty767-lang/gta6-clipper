@@ -367,7 +367,7 @@ def test_template_title_skips_sweary_quotes():
     m = metadata.template_meta(s, "twitch", "lacy", "What the fuck was that. Bro just stole a plane. Lets go")
     assert m.title == 'Lacy in GTA 6: "Bro just stole a plane" 💀'
     m = metadata.template_meta(s, "twitch", "lacy", "Holy shit. Fuck")
-    assert m.title == "Lacy lost it in GTA 6 💀"
+    assert m.title in [t.format(n="Lacy") for t in metadata.clean.FALLBACKS]
     assert all(metadata.clean.is_clean(h.lstrip("#")) for h in m.hashtags)
 
 
@@ -421,5 +421,13 @@ def test_posted_clip_offers_a_clean_tiktok_caption(tmp_path, monkeypatch):
                          title="Lacy says what the f*ck", hashtags=["#Lacy", "#GTA6", "#shorts", "#shit"])
     page = c.get(f"/clip/{a}", auth=("admin", "pw")).text
     assert "Copy TikTok caption" in page
-    assert "Lacy lost it in GTA 6 💀 #Lacy #GTA6 #fyp" in page
+    from clipper import clean
+    assert clean.safe_title("Lacy says what the f*ck", "Lacy") + " #Lacy #GTA6 #fyp" in page
     assert "#shorts" not in page and "#shit" not in page
+
+
+def test_sweary_titles_get_varied_clean_replacements():
+    from clipper import clean
+    titles = {clean.safe_title(f'YourRAGE in GTA 6: "f*ck number {i}"', "YourRAGE") for i in range(40)}
+    assert len(titles) >= 5 and all(clean.is_clean(t) and "YourRAGE" in t for t in titles)
+    assert clean.safe_title("x shit", "A") == clean.safe_title("x shit", "A")   # same clip, same title

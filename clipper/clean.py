@@ -7,6 +7,7 @@ with common spellings like "fuuuck" or "sh*t".
 from __future__ import annotations
 
 import re
+import zlib
 
 _STEMS = [
     r"f+u+c+k+\w*", r"f+[\W_]*c+k+\w*", r"motherf\w*", r"sh+i+t+\w*", r"bull?sh\w*", r"b+i+t+c+h+\w*",
@@ -24,8 +25,25 @@ def is_clean(text: str) -> bool:
     return not (_BAD.search(text or "") or _STARRED.search(text or ""))
 
 
+FALLBACKS = [
+    "{n} lost it in GTA 6 💀",
+    "{n} was NOT ready for this in GTA 6 😳",
+    "This GTA 6 moment broke {n} 💀",
+    "{n} could not believe this in GTA 6 😭",
+    "Chat went crazy over this {n} GTA 6 moment 😂",
+    "{n} had the wildest reaction in GTA 6 🤯",
+    "{n} went from calm to chaos in GTA 6 😤",
+    "Nobody expected this from {n} in GTA 6 😂",
+]
+
+
+def fallback_title(streamer_name: str, seed: str = "") -> str:
+    """A clean stand-in title. Picked by the seed, so different clips don't all get the same one."""
+    return FALLBACKS[zlib.crc32(seed.encode()) % len(FALLBACKS)].format(n=streamer_name)
+
+
 def safe_title(title: str, streamer_name: str) -> str:
-    return title if is_clean(title) else f"{streamer_name} lost it in GTA 6 💀"
+    return title if is_clean(title) else fallback_title(streamer_name, title)
 
 
 def mask_word(word: str) -> str:
