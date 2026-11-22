@@ -26,7 +26,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from starlette.concurrency import run_in_threadpool
 
 from . import db as dbm
-from . import notify
+from . import clean, notify
 from . import viral
 from .config import load_config
 from .connect import TikTokConnector, YouTubeDeviceConnector
@@ -236,8 +236,8 @@ def create_app(orch) -> FastAPI:
 
     def review_form(c: dict, note: str = "", back: str = "/") -> str:
         return f"""<form method=post action="/clips/{c['id']}/approve">
-<input type=hidden name=back value="{e(back)}"><label>Title</label><input name=title value="{e(c.get('title'))}" maxlength=100>
-<label>Description</label><textarea name=description>{e(c.get('description'))}</textarea>
+<input type=hidden name=back value="{e(back)}"><label>Title</label><input name=title value="{e(clean.safe_title(c.get('title') or '', c['streamer']))}" maxlength=100>
+<label>Description</label><textarea name=description>{e(clean.scrub(c.get('description') or ''))}</textarea>
 {note}<div class=row><button class=approve>Approve &amp; upload</button>
 <button class=reject formaction="/clips/{c['id']}/reject">Reject</button></div></form>"""
 

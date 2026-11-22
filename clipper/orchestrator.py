@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 from . import db as dbm
-from . import notify
+from . import clean, notify
 from .config import Config, Streamer, load_config
 from .pipeline import ClipProcessor, StreamWorker
 from .platforms.base import LiveInfo
@@ -53,7 +53,11 @@ class UploadManager(threading.Thread):
         if cfg.require_permission_to_upload and not (streamer and streamer.upload_allowed):
             db.update_clip(clip["id"], status=dbm.NEEDS_PERMISSION)
             return
-        db.update_clip(clip["id"], status=dbm.UPLOADING)
+        # last check, also for clips made before the clean-title filter existed
+        clip["title"] = clean.safe_title(clip.get("title") or "", clip["streamer"])
+        clip["description"] = clean.scrub(clip.get("description") or "")
+        clip["hashtags"] = [h for h in (clip.get("hashtags") or []) if clean.is_clean(str(h).lstrip("#"))]
+        db.update_clip(clip["id"], status=dbm.UPLOADING, title=clip["title"], description=clip["description"])
         results = dict(clip.get("uploads") or {})
         errors = []
         for up in uploaders:

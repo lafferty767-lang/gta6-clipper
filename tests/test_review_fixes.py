@@ -347,3 +347,25 @@ def test_viral_meter_ranks_big_shared_moments_first():
     assert viral.score(meh, pool) < 50
     assert 0 <= viral.score({"score": None, "signals": None}, []) <= 100
     assert viral.score({**meh, "llm_score": 10}, pool) > viral.score(meh, pool)
+
+
+@pytest.mark.parametrize("text,ok", [
+    ("Kai Cenat can't believe this GTA 6 chase 💀", True),
+    ("Lacy said what the fuck 😭", False), ("FUUUCK no way", False), ("this is sh*t", False),
+    ("bro WTF", False), ("class act from Clix", True), ("hello chat", True), ("Shitake mushrooms", False),
+    ("assassination mission gone wrong", True), ("he called him a dumbass", False), ("Scunthorpe", True),
+])
+def test_clean_titles(text, ok):
+    from clipper import clean
+    assert clean.is_clean(text) is ok
+
+
+def test_template_title_skips_sweary_quotes():
+    from clipper import metadata
+    from clipper.config import Streamer
+    s = Streamer(name="Lacy", platforms={"twitch": "lacy"})
+    m = metadata.template_meta(s, "twitch", "lacy", "What the fuck was that. Bro just stole a plane. Lets go")
+    assert m.title == 'Lacy in GTA 6: "Bro just stole a plane" 💀'
+    m = metadata.template_meta(s, "twitch", "lacy", "Holy shit. Fuck")
+    assert m.title == "Lacy lost it in GTA 6 💀"
+    assert all(metadata.clean.is_clean(h.lstrip("#")) for h in m.hashtags)

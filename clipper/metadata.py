@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 
 from pydantic import BaseModel, Field
 
+from . import clean
 from .config import LLM, Streamer
 
 log = logging.getLogger(__name__)
@@ -30,7 +31,9 @@ Scoring guide (score 1-10):
   or the transcript is just filler.
 
 Titles: under 70 characters, curiosity-driven, written like a fan clip channel, may use one emoji, \
-must name the streamer, no clickbait lies, no slurs. Never repeat offensive words from chat. \
+must name the streamer, no clickbait lies. Keep all copy clean and advertiser-friendly: no swear \
+words (not even censored like f*ck), no slurs, nothing sexual, even when the streamer or chat says \
+them; describe the moment instead of quoting a bad word. \
 Description: one or two short sentences. Hashtags: 3-6 relevant ones without the # symbol."""
 
 
@@ -58,10 +61,12 @@ def credit_line(streamer: Streamer, platform: str, channel: str) -> str:
 
 
 def _finalize(streamer: Streamer, platform: str, channel: str, title: str, desc: str, tags: list[str]) -> tuple[str, str, list[str]]:
+    title = clean.safe_title(title, streamer.name)
+    desc = clean.scrub(desc) or f"{streamer.name} playing GTA 6 live."
     hashtags = []
     for t in [*tags, *streamer.hashtags, streamer.name.replace(" ", ""), *BASE_TAGS]:
         t = "#" + t.lstrip("#").replace(" ", "")
-        if t.lower() not in {h.lower() for h in hashtags}:
+        if t.lower() not in {h.lower() for h in hashtags} and clean.is_clean(t.lstrip("#")):
             hashtags.append(t)
     hashtags = hashtags[:8]
     description = f"{desc}\n\n🎥 Credit: {credit_line(streamer, platform, channel)}\n\n{' '.join(hashtags)}"
@@ -69,10 +74,7 @@ def _finalize(streamer: Streamer, platform: str, channel: str, title: str, desc:
 
 
 def template_meta(streamer: Streamer, platform: str, channel: str, transcript: str) -> ClipMeta:
-    hook = ""
-    if transcript:
-        first = transcript.split(".")[0].strip()
-        hook = first if len(first) <= 45 else first[:45].rsplit(" ", 1)[0] + "..."
+    hook = clean.clean_hook(transcript)
     title = f"{streamer.name} in GTA 6: \"{hook}\" 💀" if hook else f"{streamer.name} lost it in GTA 6 💀"
     t, d, h = _finalize(streamer, platform, channel, title, f"{streamer.name} playing GTA 6 live.", [])
     return ClipMeta(t, d, h)
