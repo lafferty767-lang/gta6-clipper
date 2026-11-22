@@ -369,3 +369,36 @@ def test_template_title_skips_sweary_quotes():
     m = metadata.template_meta(s, "twitch", "lacy", "Holy shit. Fuck")
     assert m.title == "Lacy lost it in GTA 6 💀"
     assert all(metadata.clean.is_clean(h.lstrip("#")) for h in m.hashtags)
+
+
+def test_daily_cap_still_lets_a_half_posted_clip_finish(tmp_path, monkeypatch):
+    """A clip already on YouTube whose TikTok step was cut off was counted when it went out, so
+    the daily limit must not hold back its TikTok copy."""
+    import types
+    from clipper import orchestrator
+    db = dbm.DB(tmp_path / "t.db")
+    now = time.time()
+    for i in range(5):     # limit reached, last post 30 minutes ago
+        db.add_clip(streamer="a", platform="twitch", channel="a", status=dbm.UPLOADED,
+                    uploads={"youtube": {"ok": True, "at": now - 1800 - i * 1300}})
+    half = db.add_clip(streamer="a", platform="twitch", channel="a", status=dbm.APPROVED, final_path="/x.mp4",
+                       uploads={"youtube": {"ok": True, "at": now - 7000}})
+    fresh = db.add_clip(streamer="a", platform="twitch", channel="a", status=dbm.APPROVED, final_path="/y.mp4")
+    sent = []
+
+    class Up:
+        def __init__(self, name):
+            self.name = name
+
+        def upload(self, clip, path):
+            sent.append((clip["id"], self.name))
+            return {}
+    cfg = types.SimpleNamespace(uploads=types.SimpleNamespace(max_per_day=5, min_minutes_between=20),
+                                require_permission_to_upload=False)
+    orch = types.SimpleNamespace(cfg=cfg, db=db, uploaders=[Up("youtube"), Up("tiktok")],
+                                 streamer_by_name=lambda n: None)
+    monkeypatch.setattr(orchestrator.notify, "clip_posted", lambda *a, **k: None)
+    orchestrator.UploadManager(orch).step()
+    assert sent == [(half, "tiktok")]
+    assert db.get_clip(half)["status"] == dbm.UPLOADED
+    assert db.get_clip(fresh)["status"] == dbm.APPROVED

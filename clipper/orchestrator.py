@@ -42,13 +42,19 @@ class UploadManager(threading.Thread):
         if not uploaders:
             return
         now = time.time()
-        if db.uploads_since(now - 86400) >= cfg.uploads.max_per_day:
-            return
         if now - db.last_upload_at() < cfg.uploads.min_minutes_between * 60:
             return
         clip = db.next_approved()
         if not clip:
             return
+        # a clip already posted somewhere public (e.g. YouTube done, TikTok cut off) was counted
+        # toward today's limit when it first went out, so finishing it doesn't count again
+        def counted(c):
+            return any(r.get("ok") and name != "local" for name, r in (c.get("uploads") or {}).items())
+        if db.uploads_since(now - 86400) >= cfg.uploads.max_per_day and not counted(clip):
+            clip = next((c for c in db.list_clips([dbm.APPROVED], 200) if counted(c)), None)
+            if not clip:
+                return
         streamer = self.orch.streamer_by_name(clip["streamer"])
         if cfg.require_permission_to_upload and not (streamer and streamer.upload_allowed):
             db.update_clip(clip["id"], status=dbm.NEEDS_PERMISSION)
