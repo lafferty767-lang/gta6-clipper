@@ -12,6 +12,7 @@ import logging
 import subprocess
 from pathlib import Path
 
+from . import clean
 from .config import Edit, Facecam
 from .transcribe import Word
 
@@ -79,7 +80,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             end = chunk[i + 1].start if i + 1 < len(chunk) else max(w.end, w.start + 0.25)
             parts = []
             for j, other in enumerate(chunk):
-                t = _esc(other.text)
+                t = _esc(clean.mask_word(other.text))
                 parts.append("{\\c&H00FFFF&}" + t + "{\\c&HFFFFFF&}" if j == i else t)
             text = "{\\pos(%d,%d)\\fscx105\\fscy105}" % (x, y) + " ".join(parts)
             lines.append(f"Dialogue: 0,{_ts(start)},{_ts(end)},Cap,,0,0,0,,{text}")

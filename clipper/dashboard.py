@@ -214,6 +214,13 @@ def create_app(orch) -> FastAPI:
             c["_meter"] = viral.score(c, pool)
         return sorted(rows, key=lambda c: -c["_meter"]) if sort else rows
 
+    def tiktok_caption(c: dict) -> str:
+        """TikTok inbox drafts arrive without a caption, so the dashboard offers one to copy."""
+        tags = [h for h in (c.get("hashtags") or []) if clean.is_clean(str(h).lstrip("#")) and h.lower() != "#shorts"]
+        if "#fyp" not in [h.lower() for h in tags]:
+            tags.append("#fyp")
+        return f"{clean.safe_title(c.get('title') or '', c['streamer'])} {' '.join(tags)}".strip()
+
     def clip_card(c: dict, actions: str) -> str:
         sig = c.get("signals") or {}
         ups = c.get("uploads") or {}
@@ -223,6 +230,13 @@ def create_app(orch) -> FastAPI:
             for k, v in ups.items() if isinstance(v, dict))
         video = (f'<video controls preload=metadata src="/media/{c["id"]}"></video>' if c.get("final_path")
                  else "<div class='meta warn'>No video: this clip broke before it was finished (reason below).</div>")
+        cap = ""
+        if c.get("status") in (dbm.APPROVED, dbm.UPLOADING, dbm.UPLOADED) and any(u.name == "tiktok" for u in (getattr(orch, "uploaders", None) or [])):
+            cap = (f"<label>TikTok caption (paste it when you post the draft)</label>"
+                   f"<textarea readonly rows=3 id=cap{c['id']} onclick='this.select()'>{e(tiktok_caption(c))}</textarea>"
+                   f"<div class=row><button type=button onclick=\"var t=document.getElementById('cap{c['id']}');t.select();"
+                   f"(navigator.clipboard?navigator.clipboard.writeText(t.value):Promise.reject()).then(()=>{{this.textContent='Copied'}},()=>{{document.execCommand('copy');this.textContent='Copied'}})\">"
+                   f"Copy TikTok caption</button></div>")
         return f"""<div class=card>
 {video}
 {meter_html(c)}
@@ -232,7 +246,7 @@ def create_app(orch) -> FastAPI:
 {f"<div class=meta>{e(c.get('llm_reason'))}</div>" if c.get('llm_reason') else ''}
 {f"<div class=meta>{up_txt}</div>" if up_txt else ''}
 {f"<div class='meta bad'>{e(c.get('error'))}</div>" if c.get('error') else ''}
-{actions}</div>"""
+{cap}{actions}</div>"""
 
     def review_form(c: dict, note: str = "", back: str = "/") -> str:
         return f"""<form method=post action="/clips/{c['id']}/approve">

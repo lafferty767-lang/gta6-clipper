@@ -402,3 +402,24 @@ def test_daily_cap_still_lets_a_half_posted_clip_finish(tmp_path, monkeypatch):
     assert sent == [(half, "tiktok")]
     assert db.get_clip(half)["status"] == dbm.UPLOADED
     assert db.get_clip(fresh)["status"] == dbm.APPROVED
+
+
+def test_on_screen_captions_hide_swears():
+    from clipper import editor
+    from clipper.config import Edit
+    from clipper.transcribe import Word
+    words = [Word(0.0, 0.3, "what"), Word(0.3, 0.5, "the"), Word(0.5, 0.9, "fuck!"), Word(1.0, 1.3, "hello")]
+    ass = editor.build_ass(words, Edit(), 900)
+    assert "FUCK" not in ass and "****!" in ass and "HELLO" in ass
+
+
+def test_posted_clip_offers_a_clean_tiktok_caption(tmp_path, monkeypatch):
+    import types
+    orch, c = _app(tmp_path, monkeypatch)
+    orch.uploaders = [types.SimpleNamespace(name="youtube"), types.SimpleNamespace(name="tiktok")]
+    a = orch.db.add_clip(streamer="Lacy", platform="twitch", channel="lacy", status=dbm.UPLOADED,
+                         title="Lacy says what the f*ck", hashtags=["#Lacy", "#GTA6", "#shorts", "#shit"])
+    page = c.get(f"/clip/{a}", auth=("admin", "pw")).text
+    assert "Copy TikTok caption" in page
+    assert "Lacy lost it in GTA 6 💀 #Lacy #GTA6 #fyp" in page
+    assert "#shorts" not in page and "#shit" not in page

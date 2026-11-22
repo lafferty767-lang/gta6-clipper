@@ -28,6 +28,13 @@ def safe_title(title: str, streamer_name: str) -> str:
     return title if is_clean(title) else f"{streamer_name} lost it in GTA 6 💀"
 
 
+def mask_word(word: str) -> str:
+    """One caption word with a swear or slur hidden: 'fucking!' -> '*******!'."""
+    if is_clean(word):
+        return word
+    return re.sub(r"[\w*#@$%]", "*", word.rstrip(".,!?\"'")) + word[len(word.rstrip(".,!?\"'")):]
+
+
 def clean_hook(transcript: str, max_len: int = 45) -> str:
     """The first clean, short-ish sentence of what the streamer said (for a quote title), or ''."""
     for part in re.split(r"(?<=[.!?])\s+|\.\s*", transcript or ""):
