@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import db as dbm
-from . import notify
+from . import notify, recaption
 from .audio import loudness_series
 from .chat import make_chat_source
 from .config import Config, Facecam, Streamer
@@ -86,6 +86,7 @@ class ClipProcessor(threading.Thread):
             cam = detect_facecam(job.raw, job.offset, job.duration)
         render_vertical(job.raw, job.offset, job.duration, final, cfg.edit, cam, words,
                         credit_line(s, info.platform, info.channel))
+        recaption.mark_checked(final)       # rendered with swears already hidden
         if not job.keep_raw:
             job.raw.unlink(missing_ok=True)
 

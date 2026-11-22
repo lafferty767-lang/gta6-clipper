@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 from . import db as dbm
-from . import clean, notify
+from . import clean, notify, recaption
 from .config import Config, Streamer, load_config
 from .pipeline import ClipProcessor, StreamWorker
 from .platforms.base import LiveInfo
@@ -59,6 +59,18 @@ class UploadManager(threading.Thread):
         if cfg.require_permission_to_upload and not (streamer and streamer.upload_allowed):
             db.update_clip(clip["id"], status=dbm.NEEDS_PERMISSION)
             return
+        # clips rendered before captions hid swears get their video checked (and fixed) first
+        final = Path(clip.get("final_path") or "")
+        if clip.get("final_path") and final.exists() and not recaption.is_checked(final):
+            db.update_clip(clip["id"], status=dbm.UPLOADING)
+            try:
+                res = recaption.check_clip(db, cfg, clip, streamer.language if streamer else None)
+                log.info("caption check of clip %s before upload: %s", clip["id"], res)
+            except Exception as e:  # noqa: BLE001
+                log.exception("caption check of clip %s failed", clip["id"])
+                db.update_clip(clip["id"], status=dbm.FAILED, error=f"couldn't check the captions for swears: {e}")
+                return
+            clip = db.get_clip(clip["id"])
         # last check, also for clips made before the clean-title filter existed
         clip["title"] = clean.safe_title(clip.get("title") or "", clip["streamer"])
         clip["description"] = clean.scrub(clip.get("description") or "")
@@ -257,6 +269,7 @@ class Orchestrator:
             log.warning("%d upload(s) were interrupted by a restart; they're under Failed with a Retry button", n)
         self.processor.start()
         UploadManager(self).start()
+        recaption.CaptionCleaner(self).start()
         if url := os.environ.get("TUNNEL_METRICS_URL"):
             TunnelWatcher(self, url).start()
         names = ", ".join(s.name for s in self.cfg.streamers if s.enabled)

@@ -12,6 +12,7 @@ from .config import Whisper
 
 log = logging.getLogger(__name__)
 _model = None
+_RUN_LOCK = threading.Lock()
 _model_lock = threading.Lock()
 
 
@@ -50,13 +51,14 @@ def transcribe(wav: Path, cfg: Whisper, language: str | None = None) -> tuple[st
     try:
         # Hand whisper the samples rather than the file name: its own file reader depends on the
         # PyAV version, and newer PyAV releases broke it ("unexpected keyword argument 'metadata_errors'").
-        segments, _info = model.transcribe(load_wav(wav), language=language, word_timestamps=True,
-                                           vad_filter=True, beam_size=1)
-        for seg in segments:
-            texts.append(seg.text.strip())
-            for w in seg.words or []:
-                if w.word.strip():
-                    words.append(Word(float(w.start), float(w.end), w.word.strip()))
+        with _RUN_LOCK:     # new clips and the caption cleaner share one model
+            segments, _info = model.transcribe(load_wav(wav), language=language, word_timestamps=True,
+                                               vad_filter=True, beam_size=1)
+            for seg in segments:
+                texts.append(seg.text.strip())
+                for w in seg.words or []:
+                    if w.word.strip():
+                        words.append(Word(float(w.start), float(w.end), w.word.strip()))
     except Exception as e:  # noqa: BLE001 - captions are optional; never kill the clip
         log.warning("transcription failed (%s); continuing without captions", e)
         return "", []

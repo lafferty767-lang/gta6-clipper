@@ -431,3 +431,56 @@ def test_sweary_titles_get_varied_clean_replacements():
     titles = {clean.safe_title(f'YourRAGE in GTA 6: "f*ck number {i}"', "YourRAGE") for i in range(40)}
     assert len(titles) >= 5 and all(clean.is_clean(t) and "YourRAGE" in t for t in titles)
     assert clean.safe_title("x shit", "A") == clean.safe_title("x shit", "A")   # same clip, same title
+
+
+def test_old_clip_gets_its_swear_captions_covered(tmp_path, monkeypatch):
+    """A clip rendered before captions were masked: the swear line is blurred and rewritten."""
+    import subprocess
+    import numpy as np
+    from clipper import clean, recaption
+    from clipper.config import Config, Facecam
+    from clipper.editor import render_vertical
+    from clipper.transcribe import Word
+    src = tmp_path / "raw.mp4"
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=1280x720:rate=30:duration=5",
+                    "-f", "lavfi", "-i", "sine=duration=5", "-pix_fmt", "yuv420p", "-shortest", str(src)], check=True)
+    words = [Word(0.2, 0.6, "hello"), Word(0.6, 0.9, "there"), Word(2.0, 2.4, "what"), Word(2.4, 2.8, "the"),
+             Word(2.8, 3.3, "fuck!")]
+    cfg = Config(streamers=[])
+    clip_dir = tmp_path / "clips" / "00001_a"
+    clip_dir.mkdir(parents=True)
+    with monkeypatch.context() as m:              # render the way old versions did: no masking
+        m.setattr(clean, "mask_word", lambda w: w)
+        final = render_vertical(src, 0, 4.5, clip_dir / "final.mp4", cfg.edit, Facecam(0.0, 0.4, 0.2, 0.28), words, None)
+    before = final.read_bytes()
+    monkeypatch.setattr(recaption, "transcribe", lambda wav, c, lang=None: ("", words))
+    assert recaption.caption_y(final, 4.5, cfg.edit) == cfg.edit.facecam_height
+
+    def frame(t):
+        raw = subprocess.run(["ffmpeg", "-loglevel", "error", "-ss", str(t), "-i", str(final), "-frames:v", "1",
+                              "-f", "rawvideo", "-pix_fmt", "gray", "-"], capture_output=True).stdout
+        return np.frombuffer(raw, np.uint8).reshape(1920, 1080).astype(int)
+    old_swear, old_hello = frame(3.0), frame(0.4)
+    db = dbm.DB(tmp_path / "t.db")
+    cid = db.add_clip(streamer="A", platform="twitch", channel="a", status=dbm.APPROVED, final_path=str(final),
+                      title="A says f*ck", hashtags=["#GTA6", "#shit"])
+    assert recaption.check_clip(db, cfg, db.get_clip(cid)) == "fixed"
+    assert final.read_bytes() != before and recaption.is_checked(final)
+    band = slice(960 - 130, 960 + 130)
+    assert np.abs(frame(3.0)[band] - old_swear[band]).mean() > 8        # swear line covered
+    assert np.abs(frame(0.4)[band] - old_hello[band]).mean() < 4        # clean line left alone
+    c = db.get_clip(cid)
+    assert clean.is_clean(c["title"]) and c["hashtags"] == ["#GTA6"]
+    assert recaption.check_clip(db, cfg, c) == "already checked"
+
+
+def test_caption_position_found_for_blur_layout(tmp_path):
+    import subprocess
+    from clipper import recaption
+    from clipper.config import Edit
+    from clipper.editor import BLUR_FG_HEIGHT, render_vertical
+    src = tmp_path / "raw.mp4"
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=1280x720:rate=30:duration=3",
+                    "-pix_fmt", "yuv420p", str(src)], check=True)
+    out = render_vertical(src, 0, 3, tmp_path / "final.mp4", Edit(), None, [], None)
+    assert recaption.caption_y(out, 3, Edit()) == (1920 + BLUR_FG_HEIGHT) // 2 + 170
